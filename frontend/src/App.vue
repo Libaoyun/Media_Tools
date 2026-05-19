@@ -369,6 +369,7 @@ const fillExample = (url) => {
       <div class="logo-wrapper">
         <span class="logo-text">VidFetch</span>
         <span class="badge-pro">ULTRA</span>
+        <span class="badge-author">BY LBY</span>
         <!-- Settings Gear Button -->
         <button class="action-settings-btn" @click="showSettings = true" title="AI 配置">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="gear-icon"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -601,7 +602,7 @@ const fillExample = (url) => {
     <footer class="footer animate-fade-in">
       <p>仅供技术交流学习，请勿用于商业及非法用途</p>
       <p class="engine-status"><span class="pulse-indicator"></span> 引擎接口运行于: <code>{{ ENGINE_API_URL }}</code></p>
-      <p class="credits" style="font-size: 0.75rem; color: var(--text-muted); opacity: 0.6; margin-top: 6px;">Powered by: LBY</p>
+      <p class="credits" style="font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 2px 8px rgba(167, 139, 250, 0.3)); margin-top: 8px; letter-spacing: 1px;">⚡ Created & Designed by LBY</p>
     </footer>
   </div>
 </template>
@@ -884,6 +885,17 @@ const fillExample = (url) => {
   border-radius: 6px;
   letter-spacing: 1px;
   box-shadow: 0 0 12px rgba(217, 70, 239, 0.4);
+}
+
+.badge-author {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
 }
 
 .action-settings-btn {
