@@ -55,26 +55,11 @@ npm run build # 编译前端
 ```
 *编译成功后，会在 `frontend/` 下生成 `dist/` 文件夹。*
 
-### 3. 安装后端依赖并配置系统级 Chromium
-由于国内服务器拉取 Puppeteer 内置 Chrome 极其缓慢且极易报错，**强烈推荐跳过内置浏览器下载，改用 Linux 系统自带的 Chromium**：
-
+### 3. 安装后端依赖
 ```bash
 cd /home/project/Media_Tools
-
-# 1. 临时设置环境变量，让 npm 跳过浏览器下载，实现 10 秒极速安装
-export PUPPETEER_SKIP_DOWNLOAD=true
-export PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-# 2. 安装后端所需基础库 (Express, Axios 等)
-npm install # 或 pnpm install
-
-# 3. 通过 Linux 包管理器安装系统 Chromium
-# Ubuntu/Debian 系统：
-sudo apt-get update && sudo apt-get install -y chromium-browser
-# CentOS/RHEL 系统：
-sudo yum install -y chromium
+npm install   # 或 pnpm install
 ```
-
 
 ---
 

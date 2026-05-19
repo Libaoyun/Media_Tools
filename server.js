@@ -88,7 +88,6 @@ app.post('/api/parse', async (req, res) => {
     try {
         browser = await puppeteer.launch({
             headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -133,7 +132,7 @@ app.post('/api/parse', async (req, res) => {
                         console.log(`[请求拦截] 成功截获抖音 Video ID: ${videoId}，重构 1080p 无水印直链`);
                         if (resolveIntercept) resolveIntercept();
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             if (reqUrl.includes('/x/player/wbi/playurl') || reqUrl.includes('/x/player/playurl')) {
@@ -375,7 +374,7 @@ app.post('/api/parse', async (req, res) => {
                     videoSrc = videoSrc.replace('/playwm/', '/play/');
                     console.log(`[去水印优化] 已成功将抖音 playwm 链接替换为无水印 play 直链: ${videoSrc}`);
                 }
-                
+
                 // 2. 移除 water_mark 参数，强制 1080p 超清画质
                 try {
                     const parsed = new URL(videoSrc);
@@ -384,7 +383,7 @@ app.post('/api/parse', async (req, res) => {
                     }
                     parsed.searchParams.set('ratio', '1080p');
                     videoSrc = parsed.toString();
-                } catch(e) {}
+                } catch (e) { }
             }
         }
 
@@ -460,30 +459,30 @@ app.post('/api/parse', async (req, res) => {
             }
 
             // 如果没有接入豆包或豆包失败，使用本地启发式总结
-                if (!aiSummary) {
-                    aiSummary = generateAISummary(title, rawExtractText, platform);
-                    aiSummary.isRealAI = false;
-                }
-
-                res.json({
-                    success: true,
-                    videoUrl: videoSrc,
-                    targetUrl: url,
-                    title: title,
-                    cover: cover,
-                    platform: platform,
-                    description: rawExtractText || '暂无详细描述文案',
-                    aiSummary: aiSummary
-                });
-            } else {
-                res.status(404).json({ error: '嗅探失败，未能从该页面提取到视频流' });
+            if (!aiSummary) {
+                aiSummary = generateAISummary(title, rawExtractText, platform);
+                aiSummary.isRealAI = false;
             }
-        } catch (error) {
-            if (browser) await browser.close();
-            console.error("解析报错:", error);
-            res.status(500).json({ error: '解析引擎发生内部错误: ' + error.message });
+
+            res.json({
+                success: true,
+                videoUrl: videoSrc,
+                targetUrl: url,
+                title: title,
+                cover: cover,
+                platform: platform,
+                description: rawExtractText || '暂无详细描述文案',
+                aiSummary: aiSummary
+            });
+        } else {
+            res.status(404).json({ error: '嗅探失败，未能从该页面提取到视频流' });
         }
-    });
+    } catch (error) {
+        if (browser) await browser.close();
+        console.error("解析报错:", error);
+        res.status(500).json({ error: '解析引擎发生内部错误: ' + error.message });
+    }
+});
 
 // 核心代理技术：无视大厂防盗链，直接流式透传下载给前端
 app.get('/api/download', async (req, res) => {
