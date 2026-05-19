@@ -529,8 +529,20 @@ app.get('/api/download', async (req, res) => {
     }
 });
 
-const PORT = 3000;
+// 静态文件服务：托管 Vue 编译后的前端静态资产 (用于生产环境单端口部署)
+const path = require('path');
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
+
+// 针对 SPA 路由的兜底处理：所有非 API 请求均返回 index.html
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+        return next();
+    }
+    res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🔥 VidFetch 极客本地引擎已启动！请在浏览器中打开你的前端 index.html`);
+    console.log(`🔥 VidFetch 极客本地/生产引擎已启动！`);
     console.log(`   引擎接口运行于: http://localhost:${PORT}`);
 });

@@ -204,7 +204,9 @@ const stopProgress = () => {
   currentStep.value = steps.length
 }
 
-const ENGINE_API_URL = 'http://localhost:3000'
+const ENGINE_API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3000'
+  : window.location.origin
 
 const extractUrl = (text) => {
   const match = text.match(/(https?:\/\/[^\s]+)/g)
