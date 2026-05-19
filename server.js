@@ -534,7 +534,7 @@ const path = require('path');
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 // 针对 SPA 路由的兜底处理：所有非 API 请求均返回 index.html
-app.get('*', (req, res, next) => {
+app.get('*all', (req, res, next) => {
     if (req.path.startsWith('/api')) {
         return next();
     }
