@@ -601,6 +601,7 @@ const fillExample = (url) => {
     <footer class="footer animate-fade-in">
       <p>仅供技术交流学习，请勿用于商业及非法用途</p>
       <p class="engine-status"><span class="pulse-indicator"></span> 引擎接口运行于: <code>{{ ENGINE_API_URL }}</code></p>
+      <p class="credits" style="font-size: 0.75rem; color: var(--text-muted); opacity: 0.6; margin-top: 6px;">Powered by: LBY</p>
     </footer>
   </div>
 </template>
