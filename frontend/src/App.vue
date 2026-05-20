@@ -14,6 +14,11 @@ const doubaoApiKey = ref(localStorage.getItem('doubaoApiKey') || '')
 const doubaoEndpointId = ref(localStorage.getItem('doubaoEndpointId') || '')
 const enableDoubao = ref(localStorage.getItem('enableDoubao') === 'true' || !!localStorage.getItem('doubaoApiKey'))
 
+// 外网访问密钥配置
+const showAccessKeyModal = ref(false)
+const tempAccessKey = ref('')
+const accessKey = ref(sessionStorage.getItem('accessKey') || '')
+
 // Canvas 粒子背景引用
 const canvasRef = ref(null)
 let animationId = null
@@ -177,6 +182,26 @@ const saveSettings = () => {
   showToast('豆包 AI 配置已成功保存！', 'success')
 }
 
+// 关闭外网密钥配置弹框
+const closeAccessKeyModal = () => {
+  showAccessKeyModal.value = false
+  isParsing.value = false
+  stopProgress()
+}
+
+// 保存外网密钥配置
+const saveAccessKey = () => {
+  if (!tempAccessKey.value.trim()) {
+    showToast('请输入有效的密钥', 'error')
+    return
+  }
+  accessKey.value = tempAccessKey.value.trim()
+  sessionStorage.setItem('accessKey', accessKey.value)
+  showAccessKeyModal.value = false
+  showToast('密钥已保存，正在重新解析...', 'success')
+  handleParse()
+}
+
 // 嗅探步骤模拟
 const currentStep = ref(0)
 const steps = [
@@ -223,6 +248,15 @@ const handleParse = async () => {
     return
   }
 
+  // 🔑 外网密钥本地检查 (仅针对 YouTube/TikTok 等海外平台)
+  const isOverseas = cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be') || cleanUrl.includes('tiktok.com')
+  if (isOverseas && !accessKey.value) {
+    showAccessKeyModal.value = true
+    tempAccessKey.value = ''
+    showToast('解析海外平台视频需要配置密钥！', 'warning')
+    return
+  }
+
   isParsing.value = true
   errorMsg.value = ''
   parseResult.value = null
@@ -239,11 +273,18 @@ const handleParse = async () => {
       body: JSON.stringify({ 
         url: cleanUrl,
         apiKey: enableDoubao.value ? doubaoApiKey.value : '',
-        endpointId: enableDoubao.value ? doubaoEndpointId.value : ''
+        endpointId: enableDoubao.value ? doubaoEndpointId.value : '',
+        accessKey: accessKey.value
       })
     })
 
     const data = await res.json()
+
+    if (res.status === 403 || data.error === 'KEY_REQUIRED' || data.error === 'INVALID_KEY') {
+      showAccessKeyModal.value = true
+      tempAccessKey.value = accessKey.value
+      throw new Error(data.message || '解析此平台视频需要输入外网访问密钥')
+    }
 
     if (!res.ok || !data.success) {
       throw new Error(data.error || '解析失败，请检查链接是否正确')
@@ -284,6 +325,7 @@ const platformClass = computed(() => {
   if (p === '抖音' || p === 'douyin') return 'douyin'
   if (p === '小红书' || p === 'xhs') return 'xhs'
   if (p === 'tiktok') return 'tiktok'
+  if (p === 'youtube') return 'youtube'
   return 'generic'
 })
 
@@ -295,7 +337,7 @@ const clearInput = () => {
 // 代理播放 URL（含 Title 以支持原名下载）
 const proxyVideoUrl = computed(() => {
   if (!parseResult.value) return ''
-  return `${ENGINE_API_URL}/api/download?videoUrl=${encodeURIComponent(parseResult.value.videoUrl)}&referer=${encodeURIComponent(parseResult.value.targetUrl)}&title=${encodeURIComponent(parseResult.value.title)}`
+  return `${ENGINE_API_URL}/api/download?videoUrl=${encodeURIComponent(parseResult.value.videoUrl)}&referer=${encodeURIComponent(parseResult.value.targetUrl)}&title=${encodeURIComponent(parseResult.value.title)}&accessKey=${encodeURIComponent(accessKey.value)}`
 })
 
 // 复制链接
@@ -364,6 +406,34 @@ const fillExample = (url) => {
       </div>
     </Transition>
 
+    <!-- Access Key Modal (for Overseas Platforms) -->
+    <Transition name="toast-fade">
+      <div v-if="showAccessKeyModal" class="settings-overlay" @click.self="closeAccessKeyModal">
+        <div class="settings-modal">
+          <button class="settings-close" @click="closeAccessKeyModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <h3 class="settings-title">🔑 输入外网访问密钥</h3>
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; text-align: left;">
+            检测到您正在解析或下载海外平台（如 YouTube、TikTok）视频。请配置外网访问密钥以授权下载。
+          </p>
+          
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label">访问密钥 (Access Key)</label>
+            <input 
+              type="password" 
+              v-model="tempAccessKey" 
+              placeholder="该平台需外网密钥，请输入：" 
+              class="form-input"
+              @keyup.enter="saveAccessKey"
+            />
+          </div>
+
+          <button class="settings-save-btn" @click="saveAccessKey">确认提交</button>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Header -->
     <header class="hero-header animate-fade-in">
       <div class="logo-wrapper">
@@ -375,7 +445,7 @@ const fillExample = (url) => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="gear-icon"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
-      <p class="subtitle">全面支持抖音、B站、小红书、TikTok，已深度接入 B站语音字幕转写及豆包 LLM 大模型！</p>
+      <p class="subtitle">全面支持抖音、B站、小红书、TikTok、YouTube，已深度接入 B站语音字幕转写及豆包 LLM 大模型！</p>
     </header>
 
     <!-- Main Card -->
@@ -386,7 +456,7 @@ const fillExample = (url) => {
           <input 
             type="text" 
             v-model="inputUrl" 
-            placeholder="粘贴抖音、B站、小红书、TikTok等链接或分享口令..." 
+            placeholder="粘贴抖音、B站、小红书、TikTok、YouTube等链接或分享口令..." 
             class="glow-input"
             @keyup.enter="handleParse"
             :disabled="isParsing"
@@ -416,6 +486,9 @@ const fillExample = (url) => {
           </button>
           <button class="ex-btn" @click="fillExample('https://www.xiaohongshu.com/explore/65cf0bfd000000000701b7a2')">
             <span class="plat-mini-dot xhs"></span>小红书示例
+          </button>
+          <button class="ex-btn" @click="fillExample('https://www.youtube.com/watch?v=dQw4w9WgXcQ')">
+            <span class="plat-mini-dot youtube"></span>YouTube示例
           </button>
         </div>
       </section>
@@ -467,6 +540,7 @@ const fillExample = (url) => {
                 <svg v-else-if="parseResult.platform === '抖音'" class="badge-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12.53 2.24a5.3 5.3 0 0 0 4.15 2.1c.07.97-.24 1.93-.86 2.7a5.5 5.5 0 0 1-2.9-1.9c-.1-.08-.13-.23-.07-.34l.07-.1c.32-.47.53-1 .6-1.57.01-.2-.14-.36-.34-.37l-2-.02c-.22 0-.4.18-.4.4V14c0 1.65-1.34 3-3 3s-3-1.35-3-3 1.34-3 3-3c.4 0 .8.09 1.16.26.18.09.4 0 .43-.2l.33-1.92c.03-.22-.12-.42-.34-.46A5 5 0 0 0 8.5 8c-3.87 0-7 3.13-7 7s3.13 7 7 7 7-3.13 7-7v-6.7c1.37.94 3.01 1.48 4.76 1.52.22 0 .4-.18.4-.4V6.52c0-.2-.15-.37-.35-.4a3.3 3.3 0 0 1-2.8-2.86c-.03-.2-.2-.34-.4-.34h-2.15c-.22 0-.4.18-.4.4Z"/></svg>
                 <svg v-else-if="parseResult.platform === '小红书'" class="badge-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 7a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 8a3 3 0 1 1 3-3 3 3 0 0 1-3 3z" fill-rule="evenodd"/></svg>
                 <svg v-else-if="parseResult.platform === 'TikTok'" class="badge-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 5.82a5 5 0 0 1-3.6-2.1V14.5a4.5 4.5 0 1 1-9-1.8 4.5 4.5 0 0 1 8.2-2.3v-6.1A6.7 6.7 0 0 0 16.6 9V5.82z"/></svg>
+                <svg v-else-if="parseResult.platform === 'YouTube'" class="badge-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                 <svg v-else class="badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
                 {{ parseResult.platform }}
               </div>
@@ -1085,6 +1159,11 @@ const fillExample = (url) => {
   box-shadow: 0 0 6px #ff2442;
 }
 
+.plat-mini-dot.youtube {
+  background: #ff0000;
+  box-shadow: 0 0 6px #ff0000;
+}
+
 /* Progress Panel */
 .progress-panel {
   background: rgba(255, 255, 255, 0.01);
@@ -1288,6 +1367,12 @@ const fillExample = (url) => {
   color: white;
   border: 1px solid rgba(255,255,255,0.15);
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+}
+
+.badge-platform.youtube {
+  background: #ff0000;
+  color: white;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
 }
 
 .meta-container {

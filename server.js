@@ -76,11 +76,164 @@ function generateAISummary(title, desc, platform) {
 
 // 核心自研技术：无头浏览器网络层嗅探
 app.post('/api/parse', async (req, res) => {
-    let { url, apiKey, endpointId } = req.body;
+    let { url, apiKey, endpointId, accessKey } = req.body;
     if (!url) return res.status(400).json({ error: '请提供视频链接' });
 
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
+    // 提取真实的 HTTP/HTTPS 链接以清洗分享文本中的冗余内容
+    const urlMatch = url.match(/(https?:\/\/[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=]+)/);
+    if (urlMatch) {
+        url = urlMatch[0];
+    } else {
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'https://' + url;
+        }
+    }
+
+    // 🔑 外网访问密钥校验（仅针对 YouTube, TikTok 等海外平台）
+    const isOverseas = url.includes('youtube.com') || url.includes('youtu.be') || url.includes('tiktok.com');
+    if (isOverseas) {
+        const expectedKey = process.env.ACCESS_KEY || '1qaz789';
+        if (!accessKey || accessKey !== expectedKey) {
+            console.log(`[密钥验证] 未提供密钥或密钥错误。用户输入: "${accessKey || ''}"`);
+            return res.status(403).json({ error: 'KEY_REQUIRED', message: '解析此海外平台视频需要正确的外网访问密钥！' });
+        }
+        console.log(`[密钥验证] 校验通过，允许解析海外平台视频`);
+    }
+
+    // 1. 如果是 B站 链接，先尝试通过直接 API 获取，避免启动无头浏览器（极速且稳定）
+    const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv');
+    if (isBilibili) {
+        try {
+            let directUrl = url;
+            // 如果是短链接，进行 302 重定向解析
+            if (directUrl.includes('b23.tv')) {
+                const redirectRes = await axios.get(directUrl, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                    maxRedirects: 5
+                });
+                directUrl = redirectRes.request.res.responseUrl || directUrl;
+            }
+
+            let bvid = null;
+            let aid = null;
+            const bvidMatch = directUrl.match(/\/video\/(BV[a-zA-Z0-9]+)/i);
+            if (bvidMatch) {
+                bvid = bvidMatch[1];
+            } else {
+                const aidMatch = directUrl.match(/\/video\/av([0-9]+)/i);
+                if (aidMatch) aid = aidMatch[1];
+            }
+
+            if (bvid || aid) {
+                console.log(`[B站直接解析] 检测到Bvid: ${bvid || '无'} / Aid: ${aid || '无'}，开始直接调用API解析...`);
+                const viewUrl = bvid 
+                    ? `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`
+                    : `https://api.bilibili.com/x/web-interface/view?aid=${aid}`;
+
+                const viewRes = await axios.get(viewUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.bilibili.com'
+                    }
+                });
+
+                if (viewRes.data.code === 0 && viewRes.data.data) {
+                    const videoData = viewRes.data.data;
+                    const finalCid = videoData.cid;
+                    const finalAid = videoData.aid;
+                    const finalBvid = videoData.bvid || bvid;
+                    const title = (videoData.title || 'B站视频').replace("_哔哩哔哩_bilibili", "").replace("_bilibili", "");
+                    const cover = videoData.pic ? (videoData.pic.startsWith('//') ? 'https:' + videoData.pic : videoData.pic) : '';
+                    const description = videoData.desc || '暂无详细描述文案';
+                    
+                    // 获取播放地址
+                    const playRes = await axios.get(`https://api.bilibili.com/x/player/playurl?avid=${finalAid}&bvid=${finalBvid}&cid=${finalCid}&qn=80&fnval=0&fnver=0&fourk=1&otype=json`, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Referer': 'https://www.bilibili.com'
+                        }
+                    });
+
+                    if (playRes.data.code === 0 && playRes.data.data?.durl?.[0]?.url) {
+                        const videoSrc = playRes.data.data.durl[0].url;
+                        console.log(`[B站直接解析] 🎉 成功获取 MP4 直链 (qn=80)`);
+
+                        // 生成 AI 总结文案
+                        let rawExtractText = description.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+                        let aiSummary = null;
+                        const effectiveApiKey = apiKey || '';
+                        const effectiveEndpointId = endpointId || '';
+
+                        if (effectiveApiKey && effectiveEndpointId && !effectiveEndpointId.includes('xxxxx')) {
+                            try {
+                                console.log(`[豆包 AI] 正在通过豆包大模型对提取的真实文案进行核心要点提炼...`);
+                                const systemPrompt = `你是一个视频内容金牌提炼与总结大师。请根据我提供的视频标题、文案内容/字幕文本，完成以下任务，并以JSON格式返回。
+                                
+任务：
+1. 分析视频所属的核心行业分类(category)。
+2. 精炼出3个深入、有高度价值 of 视频核心看点(points)。
+3. 提供一条具有前瞻性和极强操作性的智能建议(suggestion)。
+
+注意：请仅返回一个合法的 JSON 对象，不要包含 markdown 格式标记(如 \`\`\`json)，属性名必须为: "category", "points", "suggestion"。整个JSON需要能够通过JSON.parse完美解析。`;
+
+                                const userPrompt = `视频标题: ${title}
+视频原始描述/字幕: ${rawExtractText.substring(0, 3000)}
+视频所属平台: Bilibili`;
+
+                                const doubaoRes = await axios.post('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+                                    model: effectiveEndpointId,
+                                    messages: [
+                                        { role: 'system', content: systemPrompt },
+                                        { role: 'user', content: userPrompt }
+                                    ],
+                                    response_format: { type: "json_object" }
+                                }, {
+                                    headers: {
+                                        'Authorization': `Bearer ${effectiveApiKey}`,
+                                        'Content-Type': 'application/json'
+                                    },
+                                    timeout: 25000
+                                });
+
+                                const reply = doubaoRes.data?.choices?.[0]?.message?.content;
+                                if (reply) {
+                                    const parsedReply = JSON.parse(reply);
+                                    if (parsedReply.category && parsedReply.points && parsedReply.suggestion) {
+                                        aiSummary = {
+                                            category: parsedReply.category,
+                                            points: parsedReply.points,
+                                            suggestion: parsedReply.suggestion,
+                                            isRealAI: true
+                                        };
+                                        console.log(`[豆包 AI] 深度视频要点提炼成功！`);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("[豆包 AI] 接口调用发生错误，安全降级为本地引擎:", e.message);
+                            }
+                        }
+
+                        if (!aiSummary) {
+                            aiSummary = generateAISummary(title, rawExtractText, 'Bilibili');
+                            aiSummary.isRealAI = false;
+                        }
+
+                        return res.json({
+                            success: true,
+                            videoUrl: videoSrc,
+                            targetUrl: url,
+                            title: title,
+                            cover: cover,
+                            platform: 'Bilibili',
+                            description: rawExtractText || '暂无详细描述文案',
+                            aiSummary: aiSummary
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`[B站直接解析] 接口调用失败，自动降级为 Puppeteer 浏览器嗅探:`, e.message);
+        }
     }
 
     console.log(`[解析引擎] 正在启动无头浏览器，目标: ${url}`);
@@ -100,10 +253,25 @@ app.post('/api/parse', async (req, res) => {
         const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv');
         const isXiaohongshu = url.includes('xiaohongshu.com') || url.includes('xhslink.com');
         const isTikTok = url.includes('tiktok.com');
+        const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
 
         if (isBilibili) {
             // 使用 iPad UA，既不会像手机端那样被强制唤起 Bilibili App，又不会像 PC 端那样默认采用音视频分离的 DASH 流，而是直接返回完整的 MP4 直链！
-            await page.setUserAgent('Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
+            await page.setUserAgent('Mozilla/5.0 (iPad; CPU OS 16_6 like Mac Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
+        } else if (isYouTube) {
+            // YouTube 使用 iPhone UA 并配合禁用 MSE，使其返回 progressive MP4 直链
+            await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
+            // 禁用 MediaSource Extensions 强制 YouTube 降级为 MP4 直链播放
+            await page.evaluateOnNewDocument(() => {
+                Object.defineProperty(window, 'MediaSource', {
+                    get: () => undefined,
+                    configurable: true
+                });
+                Object.defineProperty(window, 'WebKitMediaSource', {
+                    get: () => undefined,
+                    configurable: true
+                });
+            });
         } else {
             // 抖音、小红书、TikTok 等其它平台使用手机 UA 触发轻量版/触屏版
             await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
@@ -138,13 +306,30 @@ app.post('/api/parse', async (req, res) => {
             if (reqUrl.includes('/x/player/wbi/playurl') || reqUrl.includes('/x/player/playurl')) {
                 try {
                     const parsedUrl = new URL(reqUrl);
+                    parsedUrl.pathname = '/x/player/playurl'; // 更改路径为非 WBI 接口以规避签名验证错误！
                     parsedUrl.searchParams.set('fnval', '0'); // fnval=0 代表强制返回 MP4 直链，而不是音视频分离 of DASH (fnval=80/4048)
                     parsedUrl.searchParams.set('qn', '80');    // qn=80 强制向B站索要 1080p 最高清晰度（游客最高可自动下发 720p/480p，避免默认的 360p 渣画质）
+                    parsedUrl.searchParams.delete('w_rid');   // 清除 WBI 签名，避免由于参数被修改导致签名失效被拦截
+                    parsedUrl.searchParams.delete('wts');
                     request.continue({ url: parsedUrl.toString() });
-                    console.log(`[拦截请求] 成功篡改B站播放接口参数为 MP4 格式并锁定最高画质 (fnval=0, qn=80)`);
+                    console.log(`[拦截请求] 成功将B站 WBI 播放接口改写为普通接口并篡改参数 (fnval=0, qn=80)`);
                     return;
                 } catch (e) { }
             }
+
+            // ⚡ 拦截 YouTube 视频播放请求，获取直接播放的 MP4 视频直链
+            if (reqUrl.includes('googlevideo.com/videoplayback')) {
+                try {
+                    const parsedUrl = new URL(reqUrl);
+                    const mime = parsedUrl.searchParams.get('mime');
+                    if (mime && mime.includes('video/mp4') && !videoSrc) {
+                        videoSrc = reqUrl;
+                        console.log(`[请求拦截] 成功拦截到 YouTube MP4 视频直链: ${videoSrc.substring(0, 60)}...`);
+                        if (resolveIntercept) resolveIntercept();
+                    }
+                } catch (e) { }
+            }
+
             request.continue();
         });
 
@@ -182,7 +367,20 @@ app.post('/api/parse', async (req, res) => {
                 } catch (e) { }
             }
 
-            // 3. 匹配常规的视频流后缀或 Content-Type (作为 Fallback)
+            // 3. 拦截 YouTube 视频流 (作为兜底)
+            if (reqUrl.includes('googlevideo.com/videoplayback')) {
+                try {
+                    const parsedUrl = new URL(reqUrl);
+                    const mime = parsedUrl.searchParams.get('mime');
+                    if (mime && mime.includes('video/mp4') && !videoSrc) {
+                        videoSrc = reqUrl;
+                        console.log(`[嗅探成功] 拦截到 YouTube MP4 视频直链 (DASH/Progressive)`);
+                        if (resolveIntercept) resolveIntercept();
+                    }
+                } catch (e) { }
+            }
+
+            // 4. 匹配常规的视频流后缀或 Content-Type (作为 Fallback)
             const contentType = response.headers()['content-type'] || '';
             if (contentType.includes('video/') || reqUrl.includes('.mp4?') || reqUrl.includes('video/tos') || reqUrl.includes('mimeType=video_mp4')) {
                 // 排除一些杂乱的短视频广告请求，抓取主视频流
@@ -215,6 +413,7 @@ app.post('/api/parse', async (req, res) => {
         else if (url.includes("douyin.com")) platform = "抖音";
         else if (isXiaohongshu) platform = "小红书";
         else if (isTikTok) platform = "TikTok";
+        else if (isYouTube) platform = "YouTube";
 
         // 提取元数据与文案描述
         const pageMeta = await page.evaluate(() => {
@@ -270,6 +469,8 @@ app.post('/api/parse', async (req, res) => {
             title = title.replace("- 抖音", "");
         } else if (platform === "小红书") {
             title = title.replace("- 小红书", "").replace("_小红书", "");
+        } else if (platform === "YouTube") {
+            title = title.replace(" - YouTube", "");
         }
 
         // ⚡ 极客核心突破：B站 CC/AI 语音转文字字幕实时提取！
@@ -350,7 +551,7 @@ app.post('/api/parse', async (req, res) => {
                 }
 
                 // 实在没有，看看页面里有没有直接暴露的带 video/tos 或 douyinvod 的链接
-                const htmlMatch = document.body.innerHTML.match(/(https?:\/\/[^\"]*(?:douyinvod|video\/tos)[^\"]*)/);
+                const htmlMatch = document.body ? document.body.innerHTML.match(/(https?:\/\/[^\"]*(?:douyinvod|video\/tos)[^\"]*)/) : null;
                 if (htmlMatch) {
                     return htmlMatch[1].replace(/\\u002F/g, '/');
                 }
@@ -486,8 +687,20 @@ app.post('/api/parse', async (req, res) => {
 
 // 核心代理技术：无视大厂防盗链，直接流式透传下载给前端
 app.get('/api/download', async (req, res) => {
-    const { videoUrl, referer, title } = req.query;
+    const { videoUrl, referer, title, accessKey } = req.query;
     if (!videoUrl) return res.status(400).send('缺少视频地址');
+
+    // 🔑 外网下载密钥校验（仅针对 YouTube, TikTok 等海外平台）
+    const isOverseas = videoUrl.includes('googlevideo.com') || videoUrl.includes('tiktok.com') || 
+                      (referer && (referer.includes('youtube.com') || referer.includes('youtu.be') || referer.includes('tiktok.com')));
+    if (isOverseas) {
+        const expectedKey = process.env.ACCESS_KEY || '1qaz789';
+        if (!accessKey || accessKey !== expectedKey) {
+            console.log(`[下载验证] 未提供密钥或密钥错误。用户输入: "${accessKey || ''}"`);
+            return res.status(403).send('下载海外平台视频需要正确的外网访问密钥！');
+        }
+        console.log(`[下载验证] 校验通过，允许下载海外视频流`);
+    }
 
     try {
         // 根据平台定制请求头
@@ -499,6 +712,14 @@ app.get('/api/download', async (req, res) => {
         // 抖音无水印链接重定向时，Referer 必须为空，且模拟手机端 User-Agent 以免被鉴权拦截
         if (videoUrl.includes('aweme/v1/play') || videoUrl.includes('douyinvod.com')) {
             downloadHeaders = {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+            };
+        }
+
+        // YouTube 媒体流请求定制，避免防盗链拦截
+        if (videoUrl.includes('googlevideo.com')) {
+            downloadHeaders = {
+                'Referer': 'https://www.youtube.com',
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
             };
         }
