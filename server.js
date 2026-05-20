@@ -9,58 +9,120 @@ app.use(express.json());
 
 // 启发式 AI 本地智能总结引擎
 function generateAISummary(title, desc, platform) {
-    const text = ((title || '') + ' ' + (desc || '')).toLowerCase();
-
+    const fullText = ((title || '') + '。' + (desc || '')).trim();
+    
     // 1. 智能判别视频所属领域
     let category = "生活娱乐 & 综合创作";
-    if (text.includes("code") || text.includes("编程") || text.includes("开发") || text.includes("ai") || text.includes("人工智能") || text.includes("gpt") || text.includes("科技") || text.includes("大模型")) {
+    const textLower = fullText.toLowerCase();
+    if (textLower.includes("code") || textLower.includes("编程") || textLower.includes("开发") || textLower.includes("ai") || textLower.includes("人工智能") || textLower.includes("gpt") || textLower.includes("科技") || textLower.includes("大模型") || textLower.includes("软件")) {
         category = "科技前沿 & 编程技术";
-    } else if (text.includes("mv") || text.includes("音乐") || text.includes("歌") || text.includes("music") || text.includes("concert") || text.includes("声乐")) {
+    } else if (textLower.includes("mv") || textLower.includes("音乐") || textLower.includes("歌") || textLower.includes("music") || textLower.includes("concert") || textLower.includes("声乐") || textLower.includes("演奏")) {
         category = "音乐艺术 & 视听盛宴";
-    } else if (text.includes("教程") || text.includes("怎么") || text.includes("如何") || text.includes("tutorial") || text.includes("learn") || text.includes("科普") || text.includes("知识")) {
+    } else if (textLower.includes("教程") || textLower.includes("怎么") || textLower.includes("如何") || textLower.includes("tutorial") || textLower.includes("learn") || textLower.includes("科普") || textLower.includes("知识") || textLower.includes("历史") || textLower.includes("科学")) {
         category = "知识科普 & 技能教程";
-    } else if (text.includes("美食") || text.includes("吃") || text.includes("探店") || text.includes("cooking") || text.includes("food") || text.includes("做菜")) {
+    } else if (textLower.includes("美食") || textLower.includes("吃") || textLower.includes("探店") || textLower.includes("cooking") || textLower.includes("food") || textLower.includes("做菜") || textLower.includes("美味") || textLower.includes("餐厅")) {
         category = "美食分享 & 探店推荐";
-    } else if (text.includes("搞笑") || text.includes("哈哈") || text.includes("段子") || text.includes("funny") || text.includes("整蛊")) {
+    } else if (textLower.includes("搞笑") || textLower.includes("哈哈") || textLower.includes("段子") || textLower.includes("funny") || textLower.includes("整蛊") || textLower.includes("鬼畜")) {
         category = "趣味幽默 & 解压娱乐";
-    } else if (text.includes("穿搭") || text.includes("美妆") || text.includes("时尚") || text.includes("ootd") || text.includes("护肤")) {
+    } else if (textLower.includes("穿搭") || textLower.includes("美妆") || textLower.includes("时尚") || textLower.includes("ootd") || textLower.includes("护肤") || textLower.includes("彩妆")) {
         category = "时尚美妆 & 潮流生活";
+    } else if (textLower.includes("游戏") || textLower.includes("game") || textLower.includes("王者") || textLower.includes("英雄联盟") || textLower.includes("单机") || textLower.includes("手游")) {
+        category = "游戏电竞 & 娱乐解说";
     }
 
-    // 2. 启发式提炼核心看点
-    const points = [];
-    if (category === "科技前沿 & 编程技术") {
-        points.push("系统剖析了前沿科技/编程的核心逻辑，展示了现代技术栈的生产力工具组合。");
-        points.push("重点阐述了自动化与智能化在解决实际痛点时的显著优势与降本增效成果。");
-        points.push("提供了极具实操性的架构思路，适合开发者、极客及技术爱好者参考学习。");
-    } else if (category === "音乐艺术 & 视听盛宴") {
-        points.push("这是一部极具艺术感染力的视听作品，节奏感极强，画面与声轨质感出众。");
-        points.push("人声与背景器乐完美交融，传递了强烈的情感张力与深层的意境共鸣。");
-        points.push("在视听细节设计上极具心思，每一次起伏都扣人心弦，属于高品质的视听推荐。");
-    } else if (category === "知识科普 & 技能教程") {
-        points.push("本视频以浅显易懂的方式拆解了复杂的硬核知识，极大降低了大众的学习门槛。");
-        points.push("详细演示了具体实操步骤与关键细节，是干货满满的高价值技能教程。");
-        points.push("总结了常见痛点与防坑指南，帮助观众在短时间内掌握核心要领。");
-    } else if (category === "美食分享 & 探店推荐") {
-        points.push("沉浸式展示了令人食指大动的美食制作/测评过程，极富视觉诱惑力与生活烟火气。");
-        points.push("详尽拆解了独家秘方、火候掌控或探店地标的性价比与核心招牌特色。");
-        points.push("融合了独特的饮食文化与人文关怀，传递出治愈系的美食生活美学。");
-    } else if (category === "时尚美妆 & 潮流生活") {
-        points.push("紧跟当下潮流趋势，提供了极具个人特色与审美在线的视觉美学范式。");
-        points.push("细节剖析了材质搭配、色系选择或美妆手法，干货与实操性极强。");
-        points.push("旨在提升观众的审美穿搭水平与生活品质，充满积极自信的情绪感染力。");
-    } else {
-        points.push("系统还原了视频的核心脉络，内容节奏紧凑，极富感染力与趣味性。");
-        points.push("抓取了时下最受关注的社会共鸣点/生活记录，直击年轻一代受众的心灵。");
-        points.push("提供了极高情绪价值，内容结构巧妙，结尾处引人深思或留下深刻回味。");
+    // 2. 核心看点提炼：基于句子权重算法的本地抽取式摘要 (Extractive Summarization)
+    const sentences = fullText.split(/[。！？；!?;\n\r]+/)
+        .map(s => s.trim())
+        .filter(s => s.length >= 6 && s.length <= 150); // 过滤过短或过长的句子
+
+    let points = [];
+    if (sentences.length > 0) {
+        // 计算词频 (中英文轻量化权重计算)
+        const wordFreq = {};
+        const stopWords = new Set(["的", "了", "在", "是", "我", "你", "他", "它", "们", "这", "那", "有", "无", "和", "与", "就", "都", "而", "及", "并", "得", "着", "也", "且", "这", "对", "个", "中", "上", "下", "里", "来", "去", "要", "会", "能", "可", "以", "的", "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "to", "of", "in", "on", "at", "for", "with"]);
+        
+        sentences.forEach(sentence => {
+            const words = sentence.split(/[\s,，.、:：(（)）]+/).flatMap(w => {
+                if (/^[a-zA-Z]+$/.test(w)) return [w.toLowerCase()]; // 英文单词
+                const tokens = [];
+                for (let i = 0; i < w.length; i++) {
+                    tokens.push(w[i]); // 单字
+                    if (i < w.length - 1) tokens.push(w.slice(i, i + 2)); // 双字滑动窗口
+                }
+                return tokens;
+            });
+
+            words.forEach(w => {
+                if (w.length > 1 && !stopWords.has(w)) {
+                    wordFreq[w] = (wordFreq[w] || 0) + 1;
+                }
+            });
+        });
+
+        // 对句子评分
+        const sentenceScores = sentences.map((sentence, idx) => {
+            let score = 0;
+            const words = sentence.split(/[\s,，.、:：(（)）]+/).flatMap(w => {
+                if (/^[a-zA-Z]+$/.test(w)) return [w.toLowerCase()];
+                const tokens = [];
+                for (let i = 0; i < w.length; i++) {
+                    tokens.push(w[i]);
+                    if (i < w.length - 1) tokens.push(w.slice(i, i + 2));
+                }
+                return tokens;
+            });
+            words.forEach(w => {
+                if (wordFreq[w]) score += wordFreq[w];
+            });
+            score = score / (sentence.length || 1); // 归一化长度
+            score += (10 / (idx + 1)); // 句首位置奖励
+            return { text: sentence, score };
+        });
+
+        // 排序并筛选（去重高相似度句子）
+        sentenceScores.sort((a, b) => b.score - a.score);
+        const selected = [];
+        for (const item of sentenceScores) {
+            const isDuplicate = selected.some(s => {
+                const commonChars = [...s].filter(c => item.text.includes(c)).length;
+                return commonChars / Math.min(s.length, item.text.length) > 0.6;
+            });
+            if (!isDuplicate) {
+                selected.push(item.text);
+            }
+            if (selected.length >= 3) break;
+        }
+        
+        points = selected;
+    }
+
+    // 兜底看点
+    if (points.length < 3) {
+        // 从全文本中提取一些有意义的关键词 (去重，去掉常见停用词)
+        const stopWords = new Set(["的", "了", "在", "是", "我", "你", "他", "它", "们", "这", "那", "有", "无", "和", "与", "就", "都", "而", "及", "并", "得", "着", "也", "且", "对", "个", "中", "上", "下", "里", "来", "去", "要", "会", "能", "可", "以", "视频", "平台", "热门", "评论", "标签", "没有", "一个", "自己", "这个", "我们", "什么", "怎么"]);
+        const rawWords = fullText.split(/[\s,，.、:：(（)）《》#。！？；!?;\n\r]+/g)
+            .filter(w => w.length >= 2 && w.length <= 10 && !stopWords.has(w));
+        const keywords = Array.from(new Set(rawWords)).slice(0, 5);
+
+        const dynamicPoints = [
+            `本视频围绕主题“${title || '精彩内容'}”展开，通过画面呈现了作者的创作视域。`,
+            keywords.length > 0
+                ? `内容中提取到“${keywords.join('、')}”等高频词与叙事线索，信息表达凝练直白。`
+                : `视频叙事风格清晰，节奏轻快，整体能让观众在短时间内迅速抓住作品的核心方向。`,
+            `作品体现了作者在【${category}】领域的个性化表达，展现了良好的互动观赏价值。`
+        ];
+
+        while (points.length < 3) {
+            points.push(dynamicPoints[points.length]);
+        }
     }
 
     // 3. 智能行动建议
-    let suggestion = "建议收藏并结合原网页进行高频反复观看，内容实践度极高。";
+    let suggestion = "建议收藏并结合视频原网页进行高频观看，获取完整体验。";
     if (category === "科技前沿 & 编程技术") {
-        suggestion = "强烈推荐技术开发人员和AI探索者收藏，可结合代码仓库进行本地复现实战。";
+        suggestion = "建议对涉及的技术栈或AI工具进行本地搭建复现，实操以加深理解。";
     } else if (category === "音乐艺术 & 视听盛宴") {
-        suggestion = "建议佩戴高品质耳机，在安静环境下沉浸式倾听，感受无损品质的视听冲击。";
+        suggestion = "推荐佩戴耳机以获取无损解析音质效果，沉浸式体会视听艺术的细节张力。";
     } else if (category === "知识科普 & 技能教程") {
         suggestion = "内容属于典型的高密度干货，建议保存文案并建立思维导图，用于日后温故知新。";
     } else if (category === "美食分享 & 探店推荐") {
@@ -144,8 +206,51 @@ app.post('/api/parse', async (req, res) => {
                     const finalBvid = videoData.bvid || bvid;
                     const title = (videoData.title || 'B站视频').replace("_哔哩哔哩_bilibili", "").replace("_bilibili", "");
                     const cover = videoData.pic ? (videoData.pic.startsWith('//') ? 'https:' + videoData.pic : videoData.pic) : '';
-                    const description = videoData.desc || '暂无详细描述文案';
-                    
+                    let description = videoData.desc || '';
+
+                    // ⚡ 极客数据增强：获取 B站 视频的标签(Tags)和热门评论(Hot Comments)作为文本补充
+                    let tagsList = [];
+                    try {
+                        const tagsRes = await axios.get(`https://api.bilibili.com/x/tag/archive/tags?bvid=${finalBvid}`, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Referer': 'https://www.bilibili.com'
+                            }
+                        });
+                        if (tagsRes.data.code === 0 && tagsRes.data.data) {
+                            tagsList = tagsRes.data.data.map(t => t.tag_name);
+                        }
+                    } catch (err) {
+                        console.log(`[B站直接解析] 获取标签失败: ${err.message}`);
+                    }
+
+                    let hotComments = [];
+                    try {
+                        const replyRes = await axios.get(`https://api.bilibili.com/x/v2/reply?type=1&oid=${finalAid}&sort=2`, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Referer': 'https://www.bilibili.com'
+                            }
+                        });
+                        if (replyRes.data.code === 0 && replyRes.data.data && replyRes.data.data.replies) {
+                            hotComments = replyRes.data.data.replies.slice(0, 5).map(r => r.content.message);
+                        }
+                    } catch (err) {
+                        console.log(`[B站直接解析] 获取热门评论失败: ${err.message}`);
+                    }
+
+                    // 组合丰富的数据文案
+                    let rawExtractText = description || '';
+                    if (tagsList.length > 0) {
+                        rawExtractText += (rawExtractText ? '。' : '') + `视频标签: ${tagsList.join('、')}`;
+                    }
+                    if (hotComments.length > 0) {
+                        rawExtractText += (rawExtractText ? '。' : '') + `热门评论: ${hotComments.join('；')}`;
+                    }
+                    if (!rawExtractText) {
+                        rawExtractText = '暂无详细描述文案';
+                    }
+
                     // 获取播放地址
                     const playRes = await axios.get(`https://api.bilibili.com/x/player/playurl?avid=${finalAid}&bvid=${finalBvid}&cid=${finalCid}&qn=80&fnval=0&fnver=0&fourk=1&otype=json`, {
                         headers: {
@@ -159,7 +264,7 @@ app.post('/api/parse', async (req, res) => {
                         console.log(`[B站直接解析] 🎉 成功获取 MP4 直链 (qn=80)`);
 
                         // 生成 AI 总结文案
-                        let rawExtractText = description.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+                        rawExtractText = rawExtractText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
                         let aiSummary = null;
                         const effectiveApiKey = apiKey || '';
                         const effectiveEndpointId = endpointId || '';
@@ -279,6 +384,7 @@ app.post('/api/parse', async (req, res) => {
 
         let videoSrc = null;
         let description = '';
+        let pageSubtitleUrl = null;
 
         let resolveIntercept;
         const interceptPromise = new Promise(resolve => {
@@ -339,14 +445,34 @@ app.post('/api/parse', async (req, res) => {
             const reqUrl = response.url();
 
             // 1. 拦截抖音 API
-            if (reqUrl.includes('/aweme/v1/web/aweme/detail/') || reqUrl.includes('/aweme/v1/web/aweme/post/')) {
+            if (reqUrl.includes('/aweme/detail/') || reqUrl.includes('/aweme/post/') || reqUrl.includes('/aweme/iteminfo/')) {
                 try {
                     const json = await response.json();
-                    if (json?.aweme_detail?.video?.play_addr?.url_list?.[0]) {
-                        videoSrc = json.aweme_detail.video.play_addr.url_list[0];
-                        description = json.aweme_detail.desc || '';
-                        console.log(`[嗅探成功] 拦截到抖音API直链，文案长度: ${description.length}`);
-                        if (resolveIntercept) resolveIntercept();
+                    const item = json.aweme_detail || (json.aweme_list && json.aweme_list[0]);
+                    if (item) {
+                        description = item.desc || description || '';
+                        
+                        const playUrl = item.video?.play_addr?.url_list?.[0] || item.video?.play_addr_h264?.url_list?.[0];
+                        if (playUrl) {
+                            videoSrc = playUrl;
+                            console.log(`[嗅探成功] 拦截到抖音播放直链，文案长度: ${description.length}`);
+                        }
+
+                        // 尝试提取抖音自带的 ASR 字幕 / CC 字幕
+                        try {
+                            const subtitleInfos = item.video?.subtitle_infos || item.video?.subtitle_list;
+                            if (subtitleInfos && subtitleInfos.length > 0) {
+                                const subUrl = subtitleInfos[0].webvtt_url || subtitleInfos[0].url;
+                                if (subUrl) {
+                                    console.log(`[抖音字幕检测] 发现抖音原生字幕，已记录地址`);
+                                    pageSubtitleUrl = subUrl;
+                                }
+                            }
+                        } catch (subErr) { }
+
+                        if (videoSrc && resolveIntercept) {
+                            resolveIntercept();
+                        }
                     }
                 } catch (e) { }
             }
@@ -473,13 +599,72 @@ app.post('/api/parse', async (req, res) => {
             title = title.replace(" - YouTube", "");
         }
 
-        // ⚡ 极客核心突破：B站 CC/AI 语音转文字字幕实时提取！
+        // ⚡ 极客数据增强：如果网络层没能拦截到详细文案，或文案为空，通过 B站 API 补充标签与热门评论
+        if (isBilibili) {
+            let tagsList = [];
+            let finalAid = null;
+            let finalBvid = null;
+            try {
+                const bvidMatch = url.match(/\/video\/(BV[a-zA-Z0-9]+)/i);
+                finalBvid = bvidMatch ? bvidMatch[1] : null;
+
+                const metaInfo = await page.evaluate(() => {
+                    if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.videoData) {
+                        return {
+                            aid: window.__INITIAL_STATE__.videoData.aid,
+                            bvid: window.__INITIAL_STATE__.videoData.bvid
+                        };
+                    }
+                    return null;
+                });
+                if (metaInfo) {
+                    finalAid = metaInfo.aid;
+                    if (!finalBvid) finalBvid = metaInfo.bvid;
+                }
+
+                if (finalBvid) {
+                    const tagsRes = await axios.get(`https://api.bilibili.com/x/tag/archive/tags?bvid=${finalBvid}`, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Referer': 'https://www.bilibili.com'
+                        }
+                    });
+                    if (tagsRes.data.code === 0 && tagsRes.data.data) {
+                        tagsList = tagsRes.data.data.map(t => t.tag_name);
+                    }
+                }
+
+                if (finalAid) {
+                    const replyRes = await axios.get(`https://api.bilibili.com/x/v2/reply?type=1&oid=${finalAid}&sort=2`, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Referer': 'https://www.bilibili.com'
+                        }
+                    });
+                    if (replyRes.data.code === 0 && replyRes.data.data && replyRes.data.data.replies) {
+                        const hotComments = replyRes.data.data.replies.slice(0, 5).map(r => r.content.message);
+                        if (hotComments.length > 0) {
+                            description += (description ? '。' : '') + `热门评论: ${hotComments.join('；')}`;
+                        }
+                    }
+                }
+
+                if (tagsList.length > 0) {
+                    description += (description ? '。' : '') + `视频标签: ${tagsList.join('、')}`;
+                }
+            } catch (err) {
+                console.log("[B站嗅探数据增强] 失败:", err.message);
+            }
+        }
+
+        // ⚡ 极客核心突破：B站/YouTube/抖音 CC/AI 语音转文字字幕实时提取！
         let transcript = '';
         if (isBilibili) {
             try {
                 const subtitleInfo = await page.evaluate(() => {
-                    if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.videoData && window.__INITIAL_STATE__.videoData.subtitle) {
-                        return window.__INITIAL_STATE__.videoData.subtitle.list;
+                    if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.videoData) {
+                        const subtitle = window.__INITIAL_STATE__.videoData.subtitle;
+                        return subtitle ? subtitle.list : null;
                     }
                     return null;
                 });
@@ -488,7 +673,7 @@ app.post('/api/parse', async (req, res) => {
                     const subUrl = subtitleInfo[0].subtitle_url;
                     if (subUrl) {
                         const cleanSubUrl = subUrl.startsWith('//') ? 'https:' + subUrl : subUrl;
-                        console.log(`[字幕提取] 检测到B站AI语音字幕，正在启动浏览器内部抓取: ${cleanSubUrl}`);
+                        console.log(`[B站字幕提取] 检测到B站AI语音字幕，正在启动浏览器内部抓取: ${cleanSubUrl}`);
 
                         // 在 Puppeteer 页面环境内部发起 fetch 请求以避开所有 CORS 与鉴权限制
                         const subContent = await page.evaluate(async (url) => {
@@ -499,12 +684,77 @@ app.post('/api/parse', async (req, res) => {
 
                         if (subContent) {
                             transcript = subContent;
-                            console.log(`[字幕提取] 成功抓取B站整段视频 AI 语音字幕，字数: ${transcript.length}`);
+                            console.log(`[B站字幕提取] 成功抓取B站整段视频 AI 语音字幕，字数: ${transcript.length}`);
                         }
                     }
                 }
             } catch (e) {
-                console.log("[字幕提取] 抓取B站AI字幕失败:", e.message);
+                console.log("[B站字幕提取] 抓取失败:", e.message);
+            }
+        } else if (isYouTube) {
+            try {
+                const ytCaptions = await page.evaluate(() => {
+                    try {
+                        if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
+                            const tracklist = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer;
+                            if (tracklist && tracklist.captionTracks) {
+                                return tracklist.captionTracks;
+                            }
+                        }
+                    } catch (e) {}
+                    return null;
+                });
+
+                if (ytCaptions && ytCaptions.length > 0) {
+                    // 优先提取中文，否则提取第一个
+                    const track = ytCaptions.find(t => t.languageCode && t.languageCode.startsWith('zh')) || ytCaptions[0];
+                    const subUrl = track.baseUrl;
+                    if (subUrl) {
+                        console.log(`[YouTube字幕提取] 检测到YouTube原生字幕，正在进行抓取: ${subUrl.substring(0, 80)}...`);
+                        const subContent = await page.evaluate(async (url) => {
+                            const res = await fetch(url);
+                            const xml = await res.text();
+                            const tempEl = document.createElement('div');
+                            const matches = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g);
+                            if (matches) {
+                                return matches.map(m => {
+                                    const content = m.replace(/<text[^>]*>|<\/text>/g, '');
+                                    tempEl.innerHTML = content;
+                                    return tempEl.innerText;
+                                }).join(' ');
+                            }
+                            return '';
+                        }, subUrl);
+
+                        if (subContent) {
+                            transcript = subContent;
+                            console.log(`[YouTube字幕提取] 成功获取 YouTube 视频字幕，字数: ${transcript.length}`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log("[YouTube字幕提取] 抓取失败:", e.message);
+            }
+        } else if (pageSubtitleUrl) {
+            try {
+                console.log(`[抖音字幕提取] 正在抓取抖音原生字幕...`);
+                const subContent = await page.evaluate(async (url) => {
+                    const res = await fetch(url);
+                    const text = await res.text();
+                    // 简单的 WebVTT 解析：移除 WEBVTT 头和时间戳行
+                    return text.split('\n')
+                        .filter(line => !line.includes('-->') && !line.startsWith('WEBVTT') && line.trim() !== '')
+                        .join(' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                }, pageSubtitleUrl);
+
+                if (subContent) {
+                    transcript = subContent;
+                    console.log(`[抖音字幕提取] 成功获取抖音视频字幕，字数: ${transcript.length}`);
+                }
+            } catch (e) {
+                console.log("[抖音字幕提取] 抓取失败:", e.message);
             }
         }
 
@@ -541,13 +791,17 @@ app.post('/api/parse', async (req, res) => {
 
                 // 通用 video 标签兜底
                 const videoEl = document.querySelector('video');
-                if (videoEl && videoEl.src && !videoEl.src.startsWith('blob:')) {
-                    return videoEl.src;
+                if (videoEl) {
+                    const src = videoEl.getAttribute('src') || videoEl.src;
+                    if (src && !src.startsWith('blob:')) {
+                        return src;
+                    }
                 }
                 // 尝试找 source 标签
                 const sourceEl = document.querySelector('video source');
-                if (sourceEl && sourceEl.src) {
-                    return sourceEl.src;
+                if (sourceEl) {
+                    const src = sourceEl.getAttribute('src') || sourceEl.src;
+                    if (src) return src;
                 }
 
                 // 实在没有，看看页面里有没有直接暴露的带 video/tos 或 douyinvod 的链接
@@ -562,9 +816,17 @@ app.post('/api/parse', async (req, res) => {
 
         await browser.close();
 
-        // 统一做链接修正（例如无协议头的链接补全）
-        if (videoSrc && videoSrc.startsWith('//')) {
-            videoSrc = 'https:' + videoSrc;
+        // 统一做链接相对路径及协议头修正
+        if (videoSrc && !videoSrc.startsWith('http://') && !videoSrc.startsWith('https://')) {
+            if (videoSrc.startsWith('//')) {
+                videoSrc = 'https:' + videoSrc;
+            } else {
+                try {
+                    const parsedUrl = new URL(url);
+                    videoSrc = new URL(videoSrc, parsedUrl.origin).toString();
+                    console.log(`[相对路径修正] 已将相对路径修正为绝对路径: ${videoSrc}`);
+                } catch (e) {}
+            }
         }
 
         // ⚡ 极客核心去水印与去片尾逻辑
