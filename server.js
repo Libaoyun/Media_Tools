@@ -783,8 +783,28 @@ app.post('/api/parse', async (req, res) => {
                 // 抖音手机端可能在 _ROUTER_DATA 中
                 try {
                     if (window._ROUTER_DATA) {
+                        // 1. 结构化路径提取 (更精准稳定)
+                        let playAddr = null;
+                        const loaderData = window._ROUTER_DATA.loaderData;
+                        if (loaderData) {
+                            for (const key in loaderData) {
+                                if (loaderData[key] && loaderData[key].videoInfoRes) {
+                                    const itemList = loaderData[key].videoInfoRes.item_list;
+                                    if (itemList && itemList[0] && itemList[0].video && itemList[0].video.play_addr) {
+                                        const urlList = itemList[0].video.play_addr.url_list;
+                                        if (urlList && urlList.length > 0) {
+                                            playAddr = urlList[0];
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (playAddr) return playAddr;
+
+                        // 2. 正则兜底提取 (包含新发现的 snssdk 和 iesdouyin 域名)
                         const strData = JSON.stringify(window._ROUTER_DATA);
-                        const match = strData.match(/(https?:\/\/[^\"]*(?:douyinvod|video\/tos)[^\"]*)/);
+                        const match = strData.match(/(https?:\/\/[^\"]*(?:douyinvod|video\/tos|aweme\.snssdk\.com|iesdouyin\.com\/aweme\/v1\/play)[^\"]*)/);
                         if (match) return match[1];
                     }
                 } catch (e) { }
@@ -822,10 +842,16 @@ app.post('/api/parse', async (req, res) => {
                 videoSrc = 'https:' + videoSrc;
             } else {
                 try {
-                    const parsedUrl = new URL(url);
+                    const currentUrl = page.url();
+                    const parsedUrl = new URL(currentUrl);
                     videoSrc = new URL(videoSrc, parsedUrl.origin).toString();
-                    console.log(`[相对路径修正] 已将相对路径修正为绝对路径: ${videoSrc}`);
-                } catch (e) {}
+                    console.log(`[相对路径修正] 已将相对路径修正为绝对路径 (根据当前页面: ${currentUrl}): ${videoSrc}`);
+                } catch (e) {
+                    try {
+                        const parsedUrl = new URL(url);
+                        videoSrc = new URL(videoSrc, parsedUrl.origin).toString();
+                    } catch (err) {}
+                }
             }
         }
 
@@ -965,25 +991,40 @@ app.get('/api/download', async (req, res) => {
     }
 
     try {
-        // 根据平台定制请求头
+        // 1. Determine platform and apply custom headers to bypass hotlinking protection
         let downloadHeaders = {
-            'Referer': referer || 'https://www.bilibili.com',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         };
 
-        // 抖音无水印链接重定向时，Referer 必须为空，且模拟手机端 User-Agent 以免被鉴权拦截
-        if (videoUrl.includes('aweme/v1/play') || videoUrl.includes('douyinvod.com')) {
-            downloadHeaders = {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
-            };
-        }
+        const urlStr = videoUrl.toLowerCase();
+        const refStr = referer ? referer.toLowerCase() : '';
 
-        // YouTube 媒体流请求定制，避免防盗链拦截
-        if (videoUrl.includes('googlevideo.com')) {
-            downloadHeaders = {
-                'Referer': 'https://www.youtube.com',
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
-            };
+        const isBili = urlStr.includes('bilibili.com') || urlStr.includes('bilivideo.com') || urlStr.includes('hdslb.com') || refStr.includes('bilibili.com') || refStr.includes('b23.tv');
+        const isDouyin = urlStr.includes('douyin.com') || urlStr.includes('iesdouyin.com') || urlStr.includes('douyinvod.com') || urlStr.includes('snssdk.com') || refStr.includes('douyin.com') || refStr.includes('iesdouyin.com');
+        const isXhs = urlStr.includes('xiaohongshu.com') || urlStr.includes('xhscdn.com') || refStr.includes('xiaohongshu.com') || refStr.includes('xhslink.com');
+        const isYT = urlStr.includes('googlevideo.com') || urlStr.includes('youtube.com') || urlStr.includes('youtu.be') || refStr.includes('youtube.com') || refStr.includes('youtu.be');
+        const isTT = urlStr.includes('tiktok.com') || urlStr.includes('tiktokcdn.com') || refStr.includes('tiktok.com');
+
+        if (isBili) {
+            downloadHeaders['Referer'] = 'https://www.bilibili.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+        } else if (isDouyin) {
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+            // Do not provide Referer header (must be empty/removed for Douyin CDN)
+        } else if (isXhs) {
+            downloadHeaders['Referer'] = 'https://www.xiaohongshu.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+        } else if (isYT) {
+            downloadHeaders['Referer'] = 'https://www.youtube.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else if (isTT) {
+            downloadHeaders['Referer'] = 'https://www.tiktok.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else {
+            // General Fallback
+            if (referer) {
+                downloadHeaders['Referer'] = referer;
+            }
         }
 
         // 使用后端发起请求，彻底绕过前端浏览器的 CORS 限制
@@ -993,6 +1034,13 @@ app.get('/api/download', async (req, res) => {
             responseType: 'stream',
             headers: downloadHeaders
         });
+
+        // 拦截非视频流数据（例如被风控重定向到滑动验证 HTML 页面）
+        const contentType = response.headers['content-type'] || '';
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+            console.error(`[下载校验拦截] 拦截到非视频流响应 (ContentType: ${contentType})`);
+            return res.status(403).send('下载失败：检测到平台安全验证风控页面，请返回重试或刷新页面。');
+        }
 
         // 将视频流直接 pipe 转发给前端用户
         res.setHeader('Content-Type', 'video/mp4');
