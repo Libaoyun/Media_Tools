@@ -1,0 +1,64 @@
+{
+  "users": [
+    {
+      "username": "mediaAdmin",
+      "password": "adminOther9!",
+      "role": "admin",
+      "nickname": "系统管理员",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
+      "usage": {}
+    },
+    {
+      "username": "mediaSuper",
+      "password": "superOther!",
+      "role": "super",
+      "nickname": "超级用户",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=super",
+      "usage": {}
+    }
+  ],
+  "logs": [
+    {
+      "timestamp": "2026-05-24T14:01:07.996Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/JRkWp2Os5IM/"
+    },
+    {
+      "timestamp": "2026-05-24T14:04:19.877Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/JRkWp2Os5IM/"
+    },
+    {
+      "timestamp": "2026-05-24T14:04:19.890Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/JRkWp2Os5IM/"
+    },
+    {
+      "timestamp": "2026-05-24T14:04:22.593Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "提取文案与AI总结",
+      "targetUrl": "https://v.douyin.com/JRkWp2Os5IM/"
+    }
+  ],
+  "sessions": {
+    "token_n1x1zgu1sbgmpjuhlpo": {
+      "username": "mediaAdmin",
+      "expireAt": 1779804035628
+    },
+    "token_1yqj9efqu3mpjum6ej": {
+      "username": "mediaAdmin",
+      "expireAt": 1779804249067
+    },
+    "token_uv61hilaka8mpjv74kn": {
+      "username": "mediaAdmin",
+      "expireAt": 1779805226471
+    }
+  }
+}

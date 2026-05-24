@@ -2,10 +2,392 @@ const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
+const fs = require('fs');
+const FormData = require('form-data');
+const { pipeline } = require('stream/promises');
+const path = require('path');
 
 const app = express();
 app.use(cors()); // 允许前端页面跨域访问我们自己的服务
 app.use(express.json());
+
+// db.json 数据存储文件定义与初始化
+const DB_FILE = path.join(__dirname, 'db.json');
+
+function initDb() {
+    if (!fs.existsSync(DB_FILE)) {
+        const initialData = {
+            users: [
+                {
+                    username: 'mediaAdmin',
+                    password: 'adminOther9!', // Preset Admin
+                    role: 'admin',
+                    nickname: '系统管理员',
+                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=admin',
+                    usage: {} // { [dateString]: count }
+                },
+                {
+                    username: 'mediaSuper',
+                    password: 'superOther!', // Preset Super User
+                    role: 'super',
+                    nickname: '超级用户',
+                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=super',
+                    usage: {}
+                }
+            ],
+            logs: [],
+            sessions: {} // { [token]: { username, expireAt } }
+        };
+        fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+        console.log('[数据库] 初始化 db.json 完成，已注入默认管理员与超级用户。');
+    }
+}
+
+initDb();
+
+function readDb() {
+    try {
+        const content = fs.readFileSync(DB_FILE, 'utf-8');
+        return JSON.parse(content);
+    } catch (e) {
+        console.error('[数据库] 读取失败:', e.message);
+        return { users: [], logs: [], sessions: {} };
+    }
+}
+
+function writeDb(data) {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[数据库] 写入失败:', e.message);
+    }
+}
+
+// 认证中间件
+function authenticate(req, res, next) {
+    let token = '';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+    } else {
+        token = req.query.token || (req.body && req.body.token) || '';
+    }
+
+    if (!token) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: '未登录或 Token 缺失，请先登录！' });
+    }
+
+    const db = readDb();
+    const session = db.sessions[token];
+
+    if (!session) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: '登录会话已失效，请重新登录！' });
+    }
+
+    if (Date.now() > session.expireAt) {
+        delete db.sessions[token];
+        writeDb(db);
+        return res.status(401).json({ error: 'EXPIRED', message: '登录已过期（有效期2天），请重新登录！' });
+    }
+
+    const user = db.users.find(u => u.username === session.username);
+    if (!user) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: '该用户不存在或已被删除！' });
+    }
+
+    req.user = user;
+    req.token = token;
+    next();
+}
+
+// 审计日志记录
+function addLog(username, role, action, targetUrl) {
+    const db = readDb();
+    db.logs.push({
+        timestamp: new Date().toISOString(),
+        username: username,
+        role: role,
+        action: action,
+        targetUrl: targetUrl || ''
+    });
+    if (db.logs.length > 2000) {
+        db.logs.shift();
+    }
+    writeDb(db);
+}
+
+// 频率限制校验 (普通用户每天只能下载并提取 5 次，所有用户都记录使用量统计)
+function checkAndIncrementLimit(user, increment = false) {
+    const today = new Date().toISOString().split('T')[0];
+    const db = readDb();
+    const dbUser = db.users.find(u => u.username === user.username);
+    
+    if (!dbUser) {
+        return { allowed: false, message: '用户不存在！' };
+    }
+
+    if (!dbUser.usage) dbUser.usage = {};
+    const count = dbUser.usage[today] || 0;
+
+    if (dbUser.role === 'admin' || dbUser.role === 'super') {
+        if (increment) {
+            dbUser.usage[today] = count + 1;
+            writeDb(db);
+            return { allowed: true, count: count + 1 };
+        }
+        return { allowed: true, count };
+    }
+
+    if (increment) {
+        if (count >= 5) {
+            return { allowed: false, count, message: '今日已达到免费提取上限（5次）' };
+        }
+        dbUser.usage[today] = count + 1;
+        writeDb(db);
+        return { allowed: true, count: count + 1 };
+    } else {
+        if (count > 5) {
+            return { allowed: false, count, message: '今日已达到免费提取上限（5次）' };
+        }
+        return { allowed: true, count };
+    }
+}
+
+// ==================== 认证相关接口 ====================
+
+// 用户注册 (普通用户)
+app.post('/api/auth/register', (req, res) => {
+    const { username, password, nickname } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '用户名或密码不能为空！' });
+    }
+
+    const cleanUsername = username.trim();
+    if (cleanUsername.length < 3) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '用户名长度至少为3位！' });
+    }
+
+    const db = readDb();
+    const existing = db.users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
+    if (existing) {
+        return res.status(400).json({ error: 'ALREADY_EXISTS', message: '该用户名已被占用，请换一个！' });
+    }
+
+    const newUser = {
+        username: cleanUsername,
+        password: password,
+        role: 'user',
+        nickname: (nickname || cleanUsername).trim(),
+        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+        usage: {}
+    };
+
+    db.users.push(newUser);
+    writeDb(db);
+
+    res.json({ success: true, message: '注册成功，请使用新账号登录！' });
+});
+
+// 用户登录
+app.post('/api/auth/login', (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '请输入用户名和密码！' });
+    }
+
+    const db = readDb();
+    const user = db.users.find(u => u.username === username.trim());
+
+    if (!user || user.password !== password) {
+        return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: '用户名或密码输入错误！' });
+    }
+
+    // 生成 token 并设置 2 天过期时间
+    const token = 'token_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const expireAt = Date.now() + 2 * 24 * 60 * 60 * 1000;
+
+    db.sessions[token] = {
+        username: user.username,
+        expireAt: expireAt
+    };
+    writeDb(db);
+
+    let remaining = 999;
+    if (user.role === 'user') {
+        const today = new Date().toISOString().split('T')[0];
+        const count = user.usage?.[today] || 0;
+        remaining = Math.max(0, 5 - count);
+    }
+
+    res.json({
+        success: true,
+        token: token,
+        expireAt: expireAt,
+        user: {
+            username: user.username,
+            role: user.role,
+            nickname: user.nickname,
+            avatar: user.avatar,
+            remaining: remaining
+        }
+    });
+});
+
+// 获取当前用户信息
+app.get('/api/auth/me', authenticate, (req, res) => {
+    const user = req.user;
+    let remaining = 999;
+    if (user.role === 'user') {
+        const today = new Date().toISOString().split('T')[0];
+        const count = user.usage?.[today] || 0;
+        remaining = Math.max(0, 5 - count);
+    }
+
+    res.json({
+        success: true,
+        user: {
+            username: user.username,
+            role: user.role,
+            nickname: user.nickname,
+            avatar: user.avatar,
+            remaining: remaining
+        }
+    });
+});
+
+// 更新个人信息
+app.post('/api/auth/profile/update', authenticate, (req, res) => {
+    const { nickname, avatar, password } = req.body;
+    const db = readDb();
+    const dbUser = db.users.find(u => u.username === req.user.username);
+
+    if (!dbUser) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '用户不存在！' });
+    }
+
+    if (nickname) dbUser.nickname = nickname.trim();
+    if (avatar) dbUser.avatar = avatar;
+    if (password) dbUser.password = password;
+
+    writeDb(db);
+
+    res.json({
+        success: true,
+        message: '个人信息更新成功！',
+        user: {
+            username: dbUser.username,
+            role: dbUser.role,
+            nickname: dbUser.nickname,
+            avatar: dbUser.avatar
+        }
+    });
+});
+
+// ==================== 管理员相关接口 ====================
+
+// 获取所有用户账号 (仅 Admin)
+app.get('/api/admin/users', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可见！' });
+    }
+
+    const db = readDb();
+    const cleanUsers = db.users.map(u => ({
+        username: u.username,
+        role: u.role,
+        nickname: u.nickname,
+        avatar: u.avatar,
+        usage: u.usage || {}
+    }));
+
+    res.json({ success: true, users: cleanUsers });
+});
+
+// 创建用户账号 (仅 Admin)
+app.post('/api/admin/users/create', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
+    }
+
+    const { username, password, role, nickname } = req.body;
+    if (!username || !password || !role) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '参数不足，必须提供用户名、密码和角色！' });
+    }
+
+    const cleanUsername = username.trim();
+    const db = readDb();
+    const existing = db.users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
+    if (existing) {
+        return res.status(400).json({ error: 'ALREADY_EXISTS', message: '该用户名已存在！' });
+    }
+
+    // 限制 admin 和 super 角色只能有一个
+    if (role === 'admin' || role === 'super') {
+        const count = db.users.filter(u => u.role === role).length;
+        if (count >= 1) {
+            return res.status(400).json({ error: 'LIMIT_REACHED', message: `系统限制：${role === 'admin' ? '系统管理员' : '超级用户'}只能包含一个！` });
+        }
+    }
+
+    const newUser = {
+        username: cleanUsername,
+        password: password,
+        role: role,
+        nickname: (nickname || cleanUsername).trim(),
+        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+        usage: {}
+    };
+
+    db.users.push(newUser);
+    writeDb(db);
+
+    res.json({ success: true, message: '账号创建成功！' });
+});
+
+// 删除用户账号 (仅 Admin)
+app.post('/api/admin/users/delete', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
+    }
+
+    const { username } = req.body;
+    if (!username) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '请指定要删除的用户名！' });
+    }
+
+    if (username === 'mediaAdmin' || username === 'mediaSuper') {
+        return res.status(400).json({ error: 'PROTECTED', message: '系统内置管理员和超级用户无法被删除！' });
+    }
+
+    const db = readDb();
+    const index = db.users.findIndex(u => u.username === username);
+    if (index === -1) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '未找到该用户账号！' });
+    }
+
+    db.users.splice(index, 1);
+    
+    // 清理该用户的会话
+    Object.keys(db.sessions).forEach(token => {
+        if (db.sessions[token].username === username) {
+            delete db.sessions[token];
+        }
+    });
+
+    writeDb(db);
+    res.json({ success: true, message: '账号删除成功！' });
+});
+
+// 获取操作审计日志 (仅 Admin)
+app.get('/api/admin/logs', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
+    }
+
+    const db = readDb();
+    const sortedLogs = [...db.logs].reverse();
+    res.json({ success: true, logs: sortedLogs });
+});
 
 // 启发式 AI 本地智能总结引擎
 function generateAISummary(title, desc, platform) {
@@ -137,9 +519,15 @@ function generateAISummary(title, desc, platform) {
 }
 
 // 核心自研技术：无头浏览器网络层嗅探
-app.post('/api/parse', async (req, res) => {
+app.post('/api/parse', authenticate, async (req, res) => {
     let { url, apiKey, endpointId, accessKey } = req.body;
     if (!url) return res.status(400).json({ error: '请提供视频链接' });
+
+    // 校验频率限制并扣减次数 (仅普通用户)
+    const limitCheck = checkAndIncrementLimit(req.user, true);
+    if (!limitCheck.allowed) {
+        return res.status(403).json({ error: 'LIMIT_EXCEEDED', message: limitCheck.message });
+    }
 
     // 提取真实的 HTTP/HTTPS 链接以清洗分享文本中的冗余内容
     const urlMatch = url.match(/(https?:\/\/[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=]+)/);
@@ -263,66 +651,10 @@ app.post('/api/parse', async (req, res) => {
                         const videoSrc = playRes.data.data.durl[0].url;
                         console.log(`[B站直接解析] 🎉 成功获取 MP4 直链 (qn=80)`);
 
-                        // 生成 AI 总结文案
+                        // 净化空白字符，但保留完整段落和换行以维持可读性
                         rawExtractText = rawExtractText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-                        let aiSummary = null;
-                        const effectiveApiKey = apiKey || '';
-                        const effectiveEndpointId = endpointId || '';
 
-                        if (effectiveApiKey && effectiveEndpointId && !effectiveEndpointId.includes('xxxxx')) {
-                            try {
-                                console.log(`[豆包 AI] 正在通过豆包大模型对提取的真实文案进行核心要点提炼...`);
-                                const systemPrompt = `你是一个视频内容金牌提炼与总结大师。请根据我提供的视频标题、文案内容/字幕文本，完成以下任务，并以JSON格式返回。
-                                
-任务：
-1. 分析视频所属的核心行业分类(category)。
-2. 精炼出3个深入、有高度价值 of 视频核心看点(points)。
-3. 提供一条具有前瞻性和极强操作性的智能建议(suggestion)。
-
-注意：请仅返回一个合法的 JSON 对象，不要包含 markdown 格式标记(如 \`\`\`json)，属性名必须为: "category", "points", "suggestion"。整个JSON需要能够通过JSON.parse完美解析。`;
-
-                                const userPrompt = `视频标题: ${title}
-视频原始描述/字幕: ${rawExtractText.substring(0, 3000)}
-视频所属平台: Bilibili`;
-
-                                const doubaoRes = await axios.post('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
-                                    model: effectiveEndpointId,
-                                    messages: [
-                                        { role: 'system', content: systemPrompt },
-                                        { role: 'user', content: userPrompt }
-                                    ],
-                                    response_format: { type: "json_object" }
-                                }, {
-                                    headers: {
-                                        'Authorization': `Bearer ${effectiveApiKey}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    timeout: 25000
-                                });
-
-                                const reply = doubaoRes.data?.choices?.[0]?.message?.content;
-                                if (reply) {
-                                    const parsedReply = JSON.parse(reply);
-                                    if (parsedReply.category && parsedReply.points && parsedReply.suggestion) {
-                                        aiSummary = {
-                                            category: parsedReply.category,
-                                            points: parsedReply.points,
-                                            suggestion: parsedReply.suggestion,
-                                            isRealAI: true
-                                        };
-                                        console.log(`[豆包 AI] 深度视频要点提炼成功！`);
-                                    }
-                                }
-                            } catch (e) {
-                                console.error("[豆包 AI] 接口调用发生错误，安全降级为本地引擎:", e.message);
-                            }
-                        }
-
-                        if (!aiSummary) {
-                            aiSummary = generateAISummary(title, rawExtractText, 'Bilibili');
-                            aiSummary.isRealAI = false;
-                        }
-
+                        addLog(req.user.username, req.user.role, '解析并提取视频', url);
                         return res.json({
                             success: true,
                             videoUrl: videoSrc,
@@ -330,8 +662,7 @@ app.post('/api/parse', async (req, res) => {
                             title: title,
                             cover: cover,
                             platform: 'Bilibili',
-                            description: rawExtractText || '暂无详细描述文案',
-                            aiSummary: aiSummary
+                            description: rawExtractText || '暂无详细描述文案'
                         });
                     }
                 }
@@ -882,77 +1213,10 @@ app.post('/api/parse', async (req, res) => {
         }
 
         if (videoSrc) {
-            // 绝不截断原始文案，如果抓取到了语音字幕，则文案直接设为完整原文字幕
-            let rawExtractText = transcript || description;
-
-            // 净化空白字符，但保留完整段落和换行以维持可读性
+            let rawExtractText = description || '';
             rawExtractText = rawExtractText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
-            // 豆包 API 深度接入 (仅用于提炼核心看点，不对原文字幕进行破坏性修改)
-            let aiSummary = null;
-            const effectiveApiKey = apiKey || '';
-            // 支持在后端配置默认的 Endpoint ID，如果前端为空则使用默认 (请在下方将 'ep-xxxxxx' 替换为你火山控制台真实的接入点 ID)
-            const effectiveEndpointId = endpointId || '';
-
-            if (effectiveApiKey && effectiveEndpointId) {
-                if (effectiveEndpointId.includes('xxxxx')) {
-                    console.log(`[豆包 AI] ⚠️ 警告: 尚未配置接入点(Endpoint ID)。大模型调用被跳过，请前往火山控制台部署模型并获取 ep- 开头的接入点 ID！`);
-                } else {
-                    try {
-                        console.log(`[豆包 AI] 正在通过豆包大模型对提取的真实文案进行核心要点提炼... (接入点: ${effectiveEndpointId})`);
-                        const systemPrompt = `你是一个视频内容金牌提炼与总结大师。请根据我提供的视频标题、文案内容/字幕文本，完成以下任务，并以JSON格式返回。
-                    
-任务：
-1. 分析视频所属的核心行业分类(category)。
-2. 精炼出3个深入、有高度价值 of 视频核心看点(points)。
-3. 提供一条具有前瞻性和极强操作性的智能建议(suggestion)。
-
-注意：请仅返回一个合法的 JSON 对象，不要包含 markdown 格式标记(如 \`\`\`json)，属性名必须为: "category", "points", "suggestion"。整个JSON需要能够通过JSON.parse完美解析。`;
-
-                        const userPrompt = `视频标题: ${title}
-视频原始描述/字幕: ${rawExtractText.substring(0, 3000)} // 截取前3000字防 token 超限
-视频所属平台: ${platform}`;
-
-                        const doubaoRes = await axios.post('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
-                            model: effectiveEndpointId,
-                            messages: [
-                                { role: 'system', content: systemPrompt },
-                                { role: 'user', content: userPrompt }
-                            ],
-                            response_format: { type: "json_object" }
-                        }, {
-                            headers: {
-                                'Authorization': `Bearer ${effectiveApiKey}`,
-                                'Content-Type': 'application/json'
-                            },
-                            timeout: 25000
-                        });
-
-                        const reply = doubaoRes.data?.choices?.[0]?.message?.content;
-                        if (reply) {
-                            const parsedReply = JSON.parse(reply);
-                            if (parsedReply.category && parsedReply.points && parsedReply.suggestion) {
-                                aiSummary = {
-                                    category: parsedReply.category,
-                                    points: parsedReply.points,
-                                    suggestion: parsedReply.suggestion,
-                                    isRealAI: true
-                                };
-                                console.log(`[豆包 AI] 深度视频要点提炼成功！`);
-                            }
-                        }
-                    } catch (e) {
-                        console.error("[豆包 AI] 接口调用发生错误，安全降级为本地引擎:", e.message);
-                    }
-                }
-            }
-
-            // 如果没有接入豆包或豆包失败，使用本地启发式总结
-            if (!aiSummary) {
-                aiSummary = generateAISummary(title, rawExtractText, platform);
-                aiSummary.isRealAI = false;
-            }
-
+            addLog(req.user.username, req.user.role, '解析并提取视频', url);
             res.json({
                 success: true,
                 videoUrl: videoSrc,
@@ -960,8 +1224,7 @@ app.post('/api/parse', async (req, res) => {
                 title: title,
                 cover: cover,
                 platform: platform,
-                description: rawExtractText || '暂无详细描述文案',
-                aiSummary: aiSummary
+                description: rawExtractText || '暂无详细描述文案'
             });
         } else {
             res.status(404).json({ error: '嗅探失败，未能从该页面提取到视频流' });
@@ -973,10 +1236,222 @@ app.post('/api/parse', async (req, res) => {
     }
 });
 
+// ⚡ 异步文案提取与 AI 总结服务 (支持自定义 ASR Endpoint 以适配国内及阿里云部署)
+app.post('/api/summarize', authenticate, async (req, res) => {
+    const { videoUrl, targetUrl, title, platform, apiKey, endpointId, asrApiKey, asrEndpoint, asrModel } = req.body;
+    if (!videoUrl) return res.status(400).json({ error: '请提供视频流物理地址' });
+
+    // 校验频率限制 (仅普通用户，此时不增加计数，因为解析阶段已经扣减过了)
+    const limitCheck = checkAndIncrementLimit(req.user, false);
+    if (!limitCheck.allowed) {
+        return res.status(403).json({ error: 'LIMIT_EXCEEDED', message: limitCheck.message });
+    }
+
+    addLog(req.user.username, req.user.role, '提取文案与AI总结', targetUrl || videoUrl);
+
+    console.log(`[ASR & AI 总结] 收到异步处理请求。平台: ${platform || '未知'}, 视频地址 (截断): ${videoUrl.substring(0, 80)}...`);
+
+    const tempFilePath = path.join(__dirname, `temp_transcribe_${Date.now()}.mp4`);
+    let transcriptText = '';
+
+    try {
+        // 1. 设置下载防盗链 Header (与代理下载一致)
+        let downloadHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        };
+        const urlStr = videoUrl.toLowerCase();
+        const refStr = targetUrl ? targetUrl.toLowerCase() : '';
+        const isBili = urlStr.includes('bilibili.com') || urlStr.includes('bilivideo.com') || urlStr.includes('hdslb.com') || refStr.includes('bilibili.com') || refStr.includes('b23.tv');
+        const isDouyin = urlStr.includes('douyin.com') || urlStr.includes('iesdouyin.com') || urlStr.includes('douyinvod.com') || urlStr.includes('snssdk.com') || refStr.includes('douyin.com') || refStr.includes('iesdouyin.com');
+        const isXhs = urlStr.includes('xiaohongshu.com') || urlStr.includes('xhscdn.com') || refStr.includes('xiaohongshu.com') || refStr.includes('xhslink.com');
+
+        if (isBili) {
+            downloadHeaders['Referer'] = 'https://www.bilibili.com';
+        } else if (isDouyin) {
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else if (isXhs) {
+            downloadHeaders['Referer'] = 'https://www.xiaohongshu.com';
+        }
+
+        // 2. 将视频下载到本地临时文件
+        let targetDownloadUrl = videoUrl;
+        if (platform === '抖音' || platform === 'douyin' || videoUrl.includes('douyinvod.com') || videoUrl.includes('snssdk.com')) {
+            targetDownloadUrl = videoUrl.replace('ratio=1080p', 'ratio=720p');
+            console.log(`[ASR & AI 总结] 检测到抖音视频，自动将 ASR 下载流画质降低为 720p 以突破 CDN 限速。新地址: ${targetDownloadUrl}`);
+        }
+
+        console.log(`[ASR & AI 总结] 正在下载视频到临时文件: ${tempFilePath}`);
+        const writer = fs.createWriteStream(tempFilePath);
+        const downloadRes = await axios({
+            method: 'GET',
+            url: targetDownloadUrl,
+            responseType: 'stream',
+            headers: downloadHeaders,
+            timeout: 60000 // 60s timeout
+        });
+
+        await pipeline(downloadRes.data, writer);
+        console.log(`[ASR & AI 总结] 视频下载完成，文件大小: ${fs.statSync(tempFilePath).size} 字节`);
+
+        // 3. 调用 ASR 语音识别 (OpenAI Whisper 格式)
+        const effectiveAsrKey = asrApiKey || '';
+        const effectiveAsrUrl = asrEndpoint || 'https://api.openai.com/v1';
+        const effectiveAsrModel = asrModel || 'whisper-1';
+
+        if (effectiveAsrKey) {
+            console.log(`[ASR & AI 总结] 正在调用 ASR 语音转文字... (节点: ${effectiveAsrUrl}, 模型: ${effectiveAsrModel})`);
+            const formData = new FormData();
+            formData.append('file', fs.createReadStream(tempFilePath));
+            formData.append('model', effectiveAsrModel);
+            formData.append('language', 'zh');
+
+            const whisperRes = await axios.post(`${effectiveAsrUrl.replace(/\/$/, '')}/audio/transcriptions`, formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'Authorization': `Bearer ${effectiveAsrKey}`
+                },
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+                timeout: 120000 // 2 minutes timeout for transcription
+            });
+
+            transcriptText = whisperRes.data.text || '';
+            console.log(`[ASR & AI 总结] ASR 识别成功，识别到 ${transcriptText.length} 字。`);
+        } else {
+            console.log(`[ASR & AI 总结] 未配置 ASR Key，跳过语音识别转写步骤`);
+        }
+
+    } catch (err) {
+        console.error(`[ASR & AI 总结] ASR 转写流程失败:`, err.message);
+        if (err.response) {
+            try {
+                const errBody = err.response.data;
+                console.error(`[ASR 错误详情]`, errBody.toString ? errBody.toString() : errBody);
+            } catch (e) {}
+        }
+    } finally {
+        // 4. 清理本地临时文件
+        if (fs.existsSync(tempFilePath)) {
+            try {
+                fs.unlinkSync(tempFilePath);
+                console.log(`[ASR & AI 总结] 已清理临时视频文件`);
+            } catch (unlinkErr) {
+                console.error(`[ASR & AI 总结] 清理临时文件失败:`, unlinkErr.message);
+            }
+        }
+    }
+
+    // 5. 组装提炼文案并调用 LLM 大模型进行总结
+    // 如果转写失败或未开启，则降级为使用原始视频描述
+    const rawExtractText = (transcriptText || req.body.description || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    let aiSummary = null;
+
+    // 解析使用的 LLM 引擎
+    const provider = req.body.summaryProvider || (apiKey && !apiKey.includes('xxxxx') ? 'doubao' : 'siliconflow');
+    let llmUrl = '';
+    let llmKey = '';
+    let modelName = '';
+    let useJsonFormat = false;
+
+    if (provider === 'doubao') {
+        llmUrl = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+        llmKey = apiKey || '';
+        modelName = endpointId || '';
+        useJsonFormat = true;
+    } else {
+        // 硅基流动或其它 OpenAI 兼容节点
+        const baseEndpoint = asrEndpoint || 'https://api.siliconflow.cn/v1';
+        llmUrl = `${baseEndpoint.replace(/\/$/, '')}/chat/completions`;
+        llmKey = asrApiKey || '';
+        modelName = req.body.llmModel || 'Qwen/Qwen2.5-7B-Instruct';
+    }
+
+    if (llmKey && modelName && rawExtractText) {
+        try {
+            console.log(`[LLM AI] 正在调用大模型进行核心要点提炼... (引擎: ${provider}, 接入点/模型: ${modelName})`);
+            const systemPrompt = `你是一个视频内容金牌提炼与总结大师。请根据我提供的视频标题、文案内容/字幕文本，完成以下任务，并以JSON格式返回。
+        
+任务：
+1. 分析视频所属的核心行业分类(category)。
+2. 精炼出3个深入、有高度价值 of 视频核心看点(points)。
+3. 提供一条具有前瞻性和极强操作性的智能建议(suggestion)。
+
+注意：请仅返回一个合法的 JSON 对象，不要包含 markdown 格式标记(如 \`\`\`json)，属性名必须为: "category", "points", "suggestion"。整个JSON需要能够通过JSON.parse完美解析。`;
+
+            const userPrompt = `视频标题: ${title}
+视频原始描述/字幕: ${rawExtractText.substring(0, 3000)} // 截取前3000字防 token 超限
+视频所属平台: ${platform || '未知平台'}`;
+
+            const postData = {
+                model: modelName,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ]
+            };
+
+            if (useJsonFormat) {
+                postData.response_format = { type: "json_object" };
+            }
+
+            const llmRes = await axios.post(llmUrl, postData, {
+                headers: {
+                    'Authorization': `Bearer ${llmKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            });
+
+            let reply = llmRes.data?.choices?.[0]?.message?.content;
+            if (reply) {
+                reply = reply.trim();
+                // 稳健匹配：如果大模型返回了 markdown json 代码块，通过正则剥离出来
+                const markdownJsonMatch = reply.match(/```json\s*([\s\S]*?)\s*```/) || reply.match(/```\s*([\s\S]*?)\s*```/);
+                if (markdownJsonMatch) {
+                    reply = markdownJsonMatch[1].trim();
+                }
+                
+                const parsedReply = JSON.parse(reply);
+                if (parsedReply.category && parsedReply.points && parsedReply.suggestion) {
+                    aiSummary = {
+                        category: parsedReply.category,
+                        points: Array.isArray(parsedReply.points) ? parsedReply.points : [parsedReply.points],
+                        suggestion: parsedReply.suggestion,
+                        isRealAI: true
+                    };
+                    console.log(`[LLM AI] 深度视频要点提炼成功！`);
+                }
+            }
+        } catch (e) {
+            console.error(`[LLM AI] 接口调用错误，安全降级为本地启发式引擎:`, e.message);
+        }
+    }
+
+    // 兜底本地启发式总结
+    if (!aiSummary) {
+        aiSummary = generateAISummary(title, rawExtractText, platform || '通用网页');
+        aiSummary.isRealAI = false;
+    }
+
+    res.json({
+        success: true,
+        transcript: transcriptText || '未获取到视频的语音字幕文本。',
+        aiSummary: aiSummary
+    });
+});
+
 // 核心代理技术：无视大厂防盗链，直接流式透传下载给前端
-app.get('/api/download', async (req, res) => {
+app.get('/api/download', authenticate, async (req, res) => {
     const { videoUrl, referer, title, accessKey } = req.query;
     if (!videoUrl) return res.status(400).send('缺少视频地址');
+
+    // 校验频率限制 (仅普通用户，此时不增加计数，因为解析阶段已经扣减过了)
+    const limitCheck = checkAndIncrementLimit(req.user, false);
+    if (!limitCheck.allowed) {
+        return res.status(403).send('下载失败：' + limitCheck.message);
+    }
+
+    addLog(req.user.username, req.user.role, '下载物理视频', referer || videoUrl);
 
     // 🔑 外网下载密钥校验（仅针对 YouTube, TikTok 等海外平台）
     const isOverseas = videoUrl.includes('googlevideo.com') || videoUrl.includes('tiktok.com') || 
@@ -1061,7 +1536,6 @@ app.get('/api/download', async (req, res) => {
 });
 
 // 静态文件服务：托管 Vue 编译后的前端静态资产 (用于生产环境单端口部署)
-const path = require('path');
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 // 针对 SPA 路由的兜底处理：所有非 API 请求均返回 index.html
