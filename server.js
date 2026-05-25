@@ -1,4 +1,5 @@
 const express = require('express');
+const nodemailer = require('nodemailer');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
@@ -45,13 +46,34 @@ function initDb() {
 
 initDb();
 
+// 邮箱验证码缓存存储：{ [email]: { code, expireAt, type } }
+const emailCodes = {};
+const ipLimits = {};
+
 function readDb() {
     try {
         const content = fs.readFileSync(DB_FILE, 'utf-8');
-        return JSON.parse(content);
+        const db = JSON.parse(content);
+        let modified = false;
+        if (!db.smtp) {
+            db.smtp = { host: '', port: 465, secure: true, user: '', pass: '', senderName: 'VidFetch' };
+            modified = true;
+        }
+        if (db.users) {
+            db.users.forEach(u => {
+                if (u.bio === undefined) {
+                    u.bio = '';
+                    modified = true;
+                }
+            });
+        }
+        if (modified) {
+            fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+        }
+        return db;
     } catch (e) {
         console.error('[数据库] 读取失败:', e.message);
-        return { users: [], logs: [], sessions: {} };
+        return { users: [], logs: [], sessions: {}, smtp: { host: '', port: 465, secure: true, user: '', pass: '', senderName: 'VidFetch' } };
     }
 }
 
@@ -155,35 +177,240 @@ function checkAndIncrementLimit(user, increment = false) {
 
 // ==================== 认证相关接口 ====================
 
-// 用户注册 (普通用户)
-app.post('/api/auth/register', (req, res) => {
-    const { username, password, nickname } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: 'BAD_REQUEST', message: '用户名或密码不能为空！' });
+
+function printMockEmail(email, code, type) {
+    console.log('\n' + '='.repeat(50));
+    console.log(` 📧 [VidFetch] 验证码模拟发送成功 (本地开发环境)`);
+    console.log(`    收件人: ${email}`);
+    console.log(`    验证码: ${code}`);
+    console.log(`    用途: ${type === 'register' ? '账号注册 (Register)' : '重置密码 (Reset Password)'}`);
+    console.log(`    有效期: 5分钟`);
+    console.log('='.repeat(50) + '\n');
+}
+
+async function sendVerificationEmail(smtpConfig, toEmail, code, type) {
+    if (!smtpConfig || !smtpConfig.host || !smtpConfig.user || !smtpConfig.pass) {
+        return false;
     }
 
-    const cleanUsername = username.trim();
-    if (cleanUsername.length < 3) {
-        return res.status(400).json({ error: 'BAD_REQUEST', message: '用户名长度至少为3位！' });
+    const transporter = nodemailer.createTransport({
+        host: smtpConfig.host,
+        port: parseInt(smtpConfig.port) || 465,
+        secure: smtpConfig.secure !== false,
+        auth: {
+            user: smtpConfig.user,
+            pass: smtpConfig.pass
+        },
+        tls: {
+            rejectUnauthorized: false
+        },
+        connectionTimeout: 8000, // 8秒连接超时
+        greetingTimeout: 5000,
+        socketTimeout: 8000
+    });
+
+    const typeText = type === 'register' ? '账号注册' : '重置密码';
+    const mailOptions = {
+        from: `"${smtpConfig.senderName || 'VidFetch'}" <${smtpConfig.user}>`,
+        to: toEmail,
+        subject: `[VidFetch] ${typeText} 验证码`,
+        text: `您好，您的 ${typeText} 验证码为：${code}。该验证码有效期为 5 分钟。请勿泄露给他人。`,
+        html: `
+            <div style="max-width: 600px; margin: 0 auto; font-family: sans-serif; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div style="background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); padding: 24px; text-align: center; color: white;">
+                    <h2 style="margin: 0; font-size: 24px;">VidFetch 验证服务</h2>
+                </div>
+                <div style="padding: 30px; background: #ffffff; color: #1e293b;">
+                    <p style="font-size: 16px; line-height: 1.6;">您好！</p>
+                    <p style="font-size: 16px; line-height: 1.6;">您正在进行 <strong>${typeText}</strong> 操作，您的安全验证码为：</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #8b5cf6; padding: 12px 24px; background: #f3e8ff; border-radius: 8px; border: 1px dashed #c084fc;">
+                            ${code}
+                        </span>
+                    </div>
+                    <p style="font-size: 14px; color: #64748b; line-height: 1.6;">该验证码有效期为 <strong>5分钟</strong>，请在有效期内完成验证。</p>
+                    <p style="font-size: 14px; color: #e11d48; line-height: 1.6;">安全提示：请勿将此验证码泄露给任何人！如果是您本人操作，请忽略此邮件。</p>
+                </div>
+                <div style="background: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
+                    本文档由 VidFetch 引擎自动生成。请勿直接回复此邮件。
+                </div>
+            </div>
+        `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`[SMTP] 真实邮件已成功发送至 ${toEmail}`);
+    return true;
+}
+
+// 发送邮箱验证码 (模拟)
+app.post('/api/auth/send-code', async (req, res) => {
+    const { email, type } = req.body;
+    if (!email || !type) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '邮箱地址和验证类型不能为空！' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^\S+@\S+\.\S+$/;
+    if (!emailRegex.test(cleanEmail)) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '请输入有效的邮箱地址！' });
+    }
+
+    // 1. IP 频率限制 (同一 IP 每分钟限制发送 1 次)
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    if (ipLimits[ip] && (Date.now() - ipLimits[ip] < 60000)) {
+        const remaining = Math.ceil((60000 - (Date.now() - ipLimits[ip])) / 1000);
+        return res.status(429).json({ error: 'TOO_FREQUENT', message: `操作过于频繁，请等候 ${remaining} 秒后再试！` });
+    }
+
+    // 2. 邮箱地址频率限制 (同一邮箱每分钟限制发送 1 次)
+    const stored = emailCodes[cleanEmail];
+    if (stored && (Date.now() - (stored.sentAt || 0) < 60000)) {
+        const remaining = Math.ceil((60000 - (Date.now() - stored.sentAt)) / 1000);
+        return res.status(429).json({ error: 'TOO_FREQUENT', message: `验证码发送过于频繁，请等候 ${remaining} 秒后再试！` });
     }
 
     const db = readDb();
-    const existing = db.users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
-    if (existing) {
-        return res.status(400).json({ error: 'ALREADY_EXISTS', message: '该用户名已被占用，请换一个！' });
+    const existing = db.users.find(u => u.username.toLowerCase() === cleanEmail || (u.email && u.email.toLowerCase() === cleanEmail));
+
+    if (type === 'register' && existing) {
+        return res.status(400).json({ error: 'ALREADY_EXISTS', message: '该邮箱已被注册，请直接登录！' });
+    }
+    if (type === 'reset' && !existing) {
+        return res.status(400).json({ error: 'NOT_FOUND', message: '该邮箱尚未注册账户！' });
     }
 
+    // 更新 IP 频率限制时间戳
+    ipLimits[ip] = Date.now();
+
+    // 生成6位数字验证码
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    emailCodes[cleanEmail] = {
+        code,
+        expireAt: Date.now() + 5 * 60 * 1000, // 5分钟有效期
+        type,
+        sentAt: Date.now()
+    };
+
+    try {
+        const sentReal = await sendVerificationEmail(db.smtp, cleanEmail, code, type);
+        if (sentReal) {
+            return res.json({
+                success: true,
+                message: '验证码已发送至您的邮箱，请注意查收！'
+            });
+        } else {
+            // Fallback to console mock print
+            printMockEmail(cleanEmail, code, type);
+            return res.json({
+                success: true,
+                isMock: true,
+                message: '邮箱 SMTP 服务未配置，验证码已发送至服务端控制台终端（开发环境测试可用）。'
+            });
+        }
+    } catch (smtpErr) {
+        console.error('[SMTP 发送失败]', smtpErr);
+        // Fallback print in terminal as insurance
+        printMockEmail(cleanEmail, code, type);
+        return res.status(500).json({
+            error: 'SMTP_ERROR',
+            message: `真实邮件发送失败 (${smtpErr.message || 'SMTP 连接超时'})，验证码已输出至服务端控制台终端。`
+        });
+    }
+});
+
+// 重置密码
+app.post('/api/auth/reset-password', (req, res) => {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '邮箱、验证码和新密码均不能为空！' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const stored = emailCodes[cleanEmail];
+    if (!stored || stored.type !== 'reset') {
+        return res.status(400).json({ error: 'INVALID_CODE', message: '验证码不存在或未发送！' });
+    }
+    if (Date.now() > stored.expireAt) {
+        delete emailCodes[cleanEmail];
+        return res.status(400).json({ error: 'EXPIRED_CODE', message: '验证码已过期，请重新获取！' });
+    }
+    if (stored.code !== code.trim()) {
+        return res.status(400).json({ error: 'INVALID_CODE', message: '验证码错误，请输入正确的验证码！' });
+    }
+
+    const db = readDb();
+    const user = db.users.find(u => u.username.toLowerCase() === cleanEmail || (u.email && u.email.toLowerCase() === cleanEmail));
+    if (!user) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '该邮箱对应的账户不存在！' });
+    }
+
+    // 更新密码
+    user.password = newPassword;
+
+    // 清除会话使其重新登录
+    Object.keys(db.sessions).forEach(token => {
+        if (db.sessions[token].username === user.username) {
+            delete db.sessions[token];
+        }
+    });
+    writeDb(db);
+
+    // 清理已使用的验证码
+    delete emailCodes[cleanEmail];
+
+    res.json({ success: true, message: '密码重置成功，请使用新密码登录！' });
+});
+
+// 用户注册 (普通用户)
+app.post('/api/auth/register', (req, res) => {
+    const { username, password, nickname, code } = req.body;
+    if (!username || !password || !code) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '邮箱、密码和验证码均不能为空！' });
+    }
+
+    const email = username.trim().toLowerCase();
+    const emailRegex = /^\S+@\S+\.\S+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '请输入有效的邮箱地址！' });
+    }
+
+    // 校验邮箱验证码
+    const stored = emailCodes[email];
+    if (!stored || stored.type !== 'register') {
+        return res.status(400).json({ error: 'INVALID_CODE', message: '验证码不存在或未发送！' });
+    }
+    if (Date.now() > stored.expireAt) {
+        delete emailCodes[email];
+        return res.status(400).json({ error: 'EXPIRED_CODE', message: '验证码已过期，请重新获取！' });
+    }
+    if (stored.code !== code.trim()) {
+        return res.status(400).json({ error: 'INVALID_CODE', message: '验证码错误，请输入正确的验证码！' });
+    }
+
+    const db = readDb();
+    const existing = db.users.find(u => u.username.toLowerCase() === email);
+    if (existing) {
+        return res.status(400).json({ error: 'ALREADY_EXISTS', message: '该邮箱已被注册，请直接登录！' });
+    }
+
+    const randomSeed = Math.random().toString(36).substring(2, 10);
     const newUser = {
-        username: cleanUsername,
+        username: email,
+        email: email,
         password: password,
         role: 'user',
-        nickname: (nickname || cleanUsername).trim(),
-        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+        nickname: (nickname || email.split('@')[0]).trim(),
+        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(randomSeed)}`,
+        bio: '',
         usage: {}
     };
 
     db.users.push(newUser);
     writeDb(db);
+    
+    // 清理已使用的验证码
+    delete emailCodes[email];
 
     res.json({ success: true, message: '注册成功，请使用新账号登录！' });
 });
@@ -196,7 +423,7 @@ app.post('/api/auth/login', (req, res) => {
     }
 
     const db = readDb();
-    const user = db.users.find(u => u.username === username.trim());
+    const user = db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
 
     if (!user || user.password !== password) {
         return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: '用户名或密码输入错误！' });
@@ -228,6 +455,7 @@ app.post('/api/auth/login', (req, res) => {
             role: user.role,
             nickname: user.nickname,
             avatar: user.avatar,
+            bio: user.bio || '',
             remaining: remaining
         }
     });
@@ -250,6 +478,7 @@ app.get('/api/auth/me', authenticate, (req, res) => {
             role: user.role,
             nickname: user.nickname,
             avatar: user.avatar,
+            bio: user.bio || '',
             remaining: remaining
         }
     });
@@ -257,7 +486,7 @@ app.get('/api/auth/me', authenticate, (req, res) => {
 
 // 更新个人信息
 app.post('/api/auth/profile/update', authenticate, (req, res) => {
-    const { nickname, avatar, password } = req.body;
+    const { nickname, avatar, password, bio } = req.body;
     const db = readDb();
     const dbUser = db.users.find(u => u.username === req.user.username);
 
@@ -265,9 +494,10 @@ app.post('/api/auth/profile/update', authenticate, (req, res) => {
         return res.status(404).json({ error: 'NOT_FOUND', message: '用户不存在！' });
     }
 
-    if (nickname) dbUser.nickname = nickname.trim();
-    if (avatar) dbUser.avatar = avatar;
-    if (password) dbUser.password = password;
+    if (nickname !== undefined) dbUser.nickname = nickname.trim();
+    if (avatar !== undefined) dbUser.avatar = avatar;
+    if (bio !== undefined) dbUser.bio = (bio || '').trim();
+    if (password !== undefined) dbUser.password = password;
 
     writeDb(db);
 
@@ -278,9 +508,42 @@ app.post('/api/auth/profile/update', authenticate, (req, res) => {
             username: dbUser.username,
             role: dbUser.role,
             nickname: dbUser.nickname,
-            avatar: dbUser.avatar
+            avatar: dbUser.avatar,
+            bio: dbUser.bio || ''
         }
     });
+});
+
+// 修改登录密码 (仅限已登录用户常规修改)
+app.post('/api/auth/profile/change-password', authenticate, (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+        return res.status(400).json({ error: 'BAD_REQUEST', message: '原密码与新密码均不能为空！' });
+    }
+
+    const db = readDb();
+    const dbUser = db.users.find(u => u.username === req.user.username);
+
+    if (!dbUser) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '用户不存在！' });
+    }
+
+    if (dbUser.password !== oldPassword) {
+        return res.status(400).json({ error: 'INVALID_PASSWORD', message: '原密码输入错误，请重新输入！' });
+    }
+
+    // 更新密码
+    dbUser.password = newPassword;
+
+    // 清理该用户的所有活跃会话以强制重新登录
+    Object.keys(db.sessions).forEach(token => {
+        if (db.sessions[token].username === dbUser.username) {
+            delete db.sessions[token];
+        }
+    });
+
+    writeDb(db);
+    res.json({ success: true, message: '密码修改成功，请使用新密码重新登录！' });
 });
 
 // ==================== 管理员相关接口 ====================
@@ -297,6 +560,7 @@ app.get('/api/admin/users', authenticate, (req, res) => {
         role: u.role,
         nickname: u.nickname,
         avatar: u.avatar,
+        bio: u.bio || '',
         usage: u.usage || {}
     }));
 
@@ -387,6 +651,99 @@ app.get('/api/admin/logs', authenticate, (req, res) => {
     const db = readDb();
     const sortedLogs = [...db.logs].reverse();
     res.json({ success: true, logs: sortedLogs });
+});
+
+
+// 获取 SMTP 配置 (仅 Admin)
+app.get('/api/admin/smtp-settings', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
+    }
+    const db = readDb();
+    res.json({
+        success: true,
+        smtp: db.smtp || { host: '', port: 465, secure: true, user: '', pass: '', senderName: 'VidFetch' }
+    });
+});
+
+// 保存 SMTP 配置 (仅 Admin)
+app.post('/api/admin/smtp-settings', authenticate, (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
+    }
+    const { host, port, secure, user, pass, senderName } = req.body;
+    const db = readDb();
+    db.smtp = {
+        host: (host || '').trim(),
+        port: parseInt(port) || 465,
+        secure: secure !== false,
+        user: (user || '').trim(),
+        pass: (pass || '').trim(),
+        senderName: (senderName || 'VidFetch').trim()
+    };
+    writeDb(db);
+    res.json({ success: true, message: 'SMTP 邮箱配置保存成功！' });
+});
+
+// 获取 AI 核心配置备份 (限 Admin 和 Super)
+app.get('/api/admin/config-backup', authenticate, (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'super') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅超级用户或系统管理员可行！' });
+    }
+
+    const backupPath = path.join(__dirname, 'ai_config_backup.json');
+    if (!fs.existsSync(backupPath)) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '未找到备份配置文件！' });
+    }
+
+    try {
+        const content = fs.readFileSync(backupPath, 'utf-8');
+        const config = JSON.parse(content);
+        res.json({ success: true, config });
+    } catch (e) {
+        res.status(500).json({ error: 'SERVER_ERROR', message: '读取备份配置失败: ' + e.message });
+    }
+});
+
+// 保存 AI 核心配置备份 (限 Admin 和 Super)
+app.post('/api/admin/config-backup', authenticate, (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'super') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅超级用户或系统管理员可行！' });
+    }
+
+    const backupPath = path.join(__dirname, 'ai_config_backup.json');
+    try {
+        const {
+            doubaoApiKey,
+            doubaoEndpointId,
+            enableDoubao,
+            asrApiKey,
+            asrEndpoint,
+            asrModel,
+            enableAsr,
+            summaryProvider,
+            siliconflowLlApiKey,
+            siliconflowLlModel
+        } = req.body;
+
+        const config = {
+            doubaoApiKey: (doubaoApiKey || '').trim(),
+            doubaoEndpointId: (doubaoEndpointId || '').trim(),
+            enableDoubao: !!enableDoubao,
+            asrApiKey: (asrApiKey || '').trim(),
+            asrEndpoint: (asrEndpoint || '').trim(),
+            asrModel: (asrModel || '').trim(),
+            enableAsr: !!enableAsr,
+            summaryProvider: (summaryProvider || 'siliconflow').trim(),
+            siliconflowLlApiKey: (siliconflowLlApiKey || '').trim(),
+            siliconflowLlModel: (siliconflowLlModel || 'Qwen/Qwen2.5-7B-Instruct').trim()
+        };
+
+        fs.writeFileSync(backupPath, JSON.stringify(config, null, 2), 'utf-8');
+        res.json({ success: true, message: 'AI 核心配置已成功备份至服务器！' });
+    } catch (e) {
+        res.status(500).json({ error: 'SERVER_ERROR', message: '保存备份配置失败: ' + e.message });
+    }
 });
 
 // 启发式 AI 本地智能总结引擎
@@ -1236,6 +1593,66 @@ app.post('/api/parse', authenticate, async (req, res) => {
     }
 });
 
+// Resilient JSON parser for LLM replies
+function tryParseLlmJson(text) {
+    if (!text) return null;
+    let cleaned = text.trim();
+    const markdownJsonMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/) || cleaned.match(/```\s*([\s\S]*?)\s*```/);
+    if (markdownJsonMatch) {
+        cleaned = markdownJsonMatch[1].trim();
+    }
+    
+    try {
+        return JSON.parse(cleaned);
+    } catch (e) {
+        console.warn('[tryParseLlmJson] Standard parse failed, trying repair:', e.message);
+    }
+
+    try {
+        let repaired = cleaned
+            .replace(/,\s*([\]}])/g, '$1')
+            .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+        return JSON.parse(repaired);
+    } catch (e) {
+        console.warn('[tryParseLlmJson] Repaired parse failed, trying regex extraction:', e.message);
+    }
+
+    try {
+        const categoryMatch = cleaned.match(/"category"\s*:\s*"([^"]+)"/);
+        const suggestionMatch = cleaned.match(/"suggestion"\s*:\s*"([^"]+)"/);
+        
+        let category = categoryMatch ? categoryMatch[1] : null;
+        let suggestion = suggestionMatch ? suggestionMatch[1] : null;
+        let points = [];
+
+        const pointsArrayMatch = cleaned.match(/"points"\s*:\s*\[([\s\S]*?)\]/);
+        if (pointsArrayMatch) {
+            const arrayContent = pointsArrayMatch[1];
+            const matches = arrayContent.match(/"([^"]+)"/g);
+            if (matches) {
+                points = matches.map(m => m.replace(/^"|"$/g, ''));
+            }
+        }
+
+        if (!category) {
+            const catM = cleaned.match(/category\s*:\s*["']([^"']+)["']/i);
+            if (catM) category = catM[1];
+        }
+        if (!suggestion) {
+            const sugM = cleaned.match(/suggestion\s*:\s*["']([^"']+)["']/i);
+            if (sugM) suggestion = sugM[1];
+        }
+
+        if (category && points.length > 0 && suggestion) {
+            return { category, points, suggestion };
+        }
+    } catch (regErr) {
+        console.error('[tryParseLlmJson] Regex parse threw exception:', regErr.message);
+    }
+
+    return null;
+}
+
 // ⚡ 异步文案提取与 AI 总结服务 (支持自定义 ASR Endpoint 以适配国内及阿里云部署)
 app.post('/api/summarize', authenticate, async (req, res) => {
     const { videoUrl, targetUrl, title, platform, apiKey, endpointId, asrApiKey, asrEndpoint, asrModel } = req.body;
@@ -1404,15 +1821,8 @@ app.post('/api/summarize', authenticate, async (req, res) => {
 
             let reply = llmRes.data?.choices?.[0]?.message?.content;
             if (reply) {
-                reply = reply.trim();
-                // 稳健匹配：如果大模型返回了 markdown json 代码块，通过正则剥离出来
-                const markdownJsonMatch = reply.match(/```json\s*([\s\S]*?)\s*```/) || reply.match(/```\s*([\s\S]*?)\s*```/);
-                if (markdownJsonMatch) {
-                    reply = markdownJsonMatch[1].trim();
-                }
-                
-                const parsedReply = JSON.parse(reply);
-                if (parsedReply.category && parsedReply.points && parsedReply.suggestion) {
+                const parsedReply = tryParseLlmJson(reply);
+                if (parsedReply && parsedReply.category && parsedReply.points && parsedReply.suggestion) {
                     aiSummary = {
                         category: parsedReply.category,
                         points: Array.isArray(parsedReply.points) ? parsedReply.points : [parsedReply.points],

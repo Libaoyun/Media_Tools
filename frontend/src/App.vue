@@ -45,6 +45,276 @@ const regUsername = ref('')
 const regPassword = ref('')
 const regNickname = ref('')
 
+// 邮箱验证、验证码与图形验证码状态
+const captchaText = ref('')
+const userCaptchaInput = ref('')
+const captchaCanvasRef = ref(null)
+const regCode = ref('')
+const resetEmail = ref('')
+const resetCode = ref('')
+const resetPassword = ref('')
+const countdown = ref(0)
+
+// 表单校验错误状态提示
+const authErrors = ref({
+  loginUsername: '',
+  loginPassword: '',
+  regUsername: '',
+  regPassword: '',
+  regNickname: '',
+  regCaptcha: '',
+  regCode: '',
+  resetEmail: '',
+  resetCaptcha: '',
+  resetCode: '',
+  resetPassword: ''
+})
+
+// SMTP 邮件服务器配置状态 (Admin 专属)
+const smtpHost = ref('')
+const smtpPort = ref(465)
+const smtpSecure = ref(true)
+const smtpUser = ref('')
+const smtpPass = ref('')
+const smtpSenderName = ref('VidFetch')
+
+const fetchSmtpSettings = async () => {
+  if (currentUser.value && currentUser.value.role === 'admin') {
+    try {
+      const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/smtp-settings`)
+      const data = await res.json()
+      if (res.ok && data.success) {
+        smtpHost.value = data.smtp.host || ''
+        smtpPort.value = data.smtp.port || 465
+        smtpSecure.value = data.smtp.secure !== false
+        smtpUser.value = data.smtp.user || ''
+        smtpPass.value = data.smtp.pass || ''
+        smtpSenderName.value = data.smtp.senderName || 'VidFetch'
+      }
+    } catch (e) {
+      console.error('获取 SMTP 配置失败:', e)
+    }
+  }
+}
+
+// 个人简介、邮箱脱敏与修改密码弹框状态
+const editBio = ref('')
+
+const maskedEmail = computed(() => {
+  if (!currentUser.value) return ''
+  const email = currentUser.value.username || ''
+  if (!email.includes('@')) return email // 内置非邮箱账号
+  const parts = email.split('@')
+  const local = parts[0]
+  const domain = parts[1]
+  if (local.length >= 3) {
+    return local.slice(0, 3) + '***@' + domain
+  } else {
+    return local.slice(0, 1) + '***@' + domain
+  }
+})
+
+const showChangePasswordModal = ref(false)
+const changePwTab = ref('normal') // 'normal' | 'code'
+
+const changePwOld = ref('')
+const changePwNew = ref('')
+const changePwConfirm = ref('')
+
+const changePwCode = ref('')
+const changePwResetNew = ref('')
+const changePwResetConfirm = ref('')
+
+const changePwErrors = ref({
+  old: '',
+  new: '',
+  confirm: '',
+  code: '',
+  resetNew: '',
+  resetConfirm: '',
+  captcha: ''
+})
+
+const openChangePasswordModal = () => {
+  changePwOld.value = ''
+  changePwNew.value = ''
+  changePwConfirm.value = ''
+  changePwCode.value = ''
+  changePwResetNew.value = ''
+  changePwResetConfirm.value = ''
+  userCaptchaInput.value = ''
+  
+  // Clear all errors
+  Object.keys(changePwErrors.value).forEach(k => changePwErrors.value[k] = '')
+  
+  changePwTab.value = 'normal'
+  showChangePasswordModal.value = true
+}
+
+const switchChangePwTab = (tab) => {
+  changePwTab.value = tab
+  userCaptchaInput.value = ''
+  // Clear all errors
+  Object.keys(changePwErrors.value).forEach(k => changePwErrors.value[k] = '')
+  if (tab === 'code') {
+    setTimeout(drawCaptcha, 50)
+  }
+}
+
+// 常规修改密码提交
+const handleChangePasswordNormal = async () => {
+  changePwErrors.value.old = ''
+  changePwErrors.value.new = ''
+  changePwErrors.value.confirm = ''
+
+  let hasErr = false
+  if (!changePwOld.value.trim()) {
+    changePwErrors.value.old = '请输入原密码！'
+    hasErr = true
+  }
+  if (!changePwNew.value.trim()) {
+    changePwErrors.value.new = '请输入新密码！'
+    hasErr = true
+  } else if (changePwNew.value.trim().length < 6) {
+    changePwErrors.value.new = '新密码长度不能少于6位！'
+    hasErr = true
+  }
+  if (!changePwConfirm.value.trim()) {
+    changePwErrors.value.confirm = '请确认新密码！'
+    hasErr = true
+  } else if (changePwConfirm.value.trim() !== changePwNew.value.trim()) {
+    changePwErrors.value.confirm = '两次输入的新密码不一致！'
+    hasErr = true
+  }
+
+  if (hasErr) return
+
+  try {
+    const res = await fetchWithAuth(`${ENGINE_API_URL}/api/auth/profile/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldPassword: changePwOld.value.trim(),
+        newPassword: changePwNew.value.trim()
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showChangePasswordModal.value = false
+      showToast('密码修改成功，请重新登录！', 'success')
+      handleLogout()
+    } else {
+      showToast(data.message || '密码修改失败！', 'error')
+      if (data.message && data.message.includes('原密码')) {
+        changePwErrors.value.old = data.message
+      } else {
+        changePwErrors.value.new = data.message || '密码修改失败！'
+      }
+    }
+  } catch (e) {
+    showToast('密码修改接口请求错误！', 'error')
+  }
+}
+
+// 验证码重置密码提交
+const handleChangePasswordCode = async () => {
+  changePwErrors.value.code = ''
+  changePwErrors.value.resetNew = ''
+  changePwErrors.value.resetConfirm = ''
+
+  let hasErr = false
+  if (!changePwCode.value.trim()) {
+    changePwErrors.value.code = '请输入验证码！'
+    hasErr = true
+  } else if (changePwCode.value.trim().length !== 6) {
+    changePwErrors.value.code = '验证码格式错误！'
+    hasErr = true
+  }
+
+  if (!changePwResetNew.value.trim()) {
+    changePwErrors.value.resetNew = '请输入新密码！'
+    hasErr = true
+  } else if (changePwResetNew.value.trim().length < 6) {
+    changePwErrors.value.resetNew = '新密码长度不能少于6位！'
+    hasErr = true
+  }
+
+  if (!changePwResetConfirm.value.trim()) {
+    changePwErrors.value.resetConfirm = '请确认新密码！'
+    hasErr = true
+  } else if (changePwResetConfirm.value.trim() !== changePwResetNew.value.trim()) {
+    changePwErrors.value.resetConfirm = '两次输入的新密码不一致！'
+    hasErr = true
+  }
+
+  if (hasErr) return
+
+  try {
+    const res = await fetch(`${ENGINE_API_URL}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: currentUser.value.username,
+        code: changePwCode.value.trim(),
+        newPassword: changePwResetNew.value.trim()
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showChangePasswordModal.value = false
+      showToast('密码重置成功，请使用新密码重新登录！', 'success')
+      handleLogout()
+    } else {
+      showToast(data.message || '密码重置失败！', 'error')
+      if (data.message && data.message.includes('验证码')) {
+        changePwErrors.value.code = data.message
+      } else {
+        changePwErrors.value.resetNew = data.message || '密码重置失败！'
+      }
+    }
+  } catch (e) {
+    showToast('重置密码接口请求失败！', 'error')
+  }
+}
+
+// 专门为修改密码弹框内发送验证码
+const handleSendCodeInModal = async () => {
+  changePwErrors.value.captcha = ''
+  
+  if (!userCaptchaInput.value.trim()) {
+    changePwErrors.value.captcha = '请输入图形验证码！'
+    return
+  }
+  if (userCaptchaInput.value.trim().toLowerCase() !== captchaText.value.toLowerCase()) {
+    changePwErrors.value.captcha = '图形验证码不正确！'
+    drawCaptcha()
+    userCaptchaInput.value = ''
+    return
+  }
+
+  try {
+    const res = await fetch(`${ENGINE_API_URL}/api/auth/send-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        email: currentUser.value.username, 
+        type: 'reset' 
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast('验证码已发送！请检查邮箱（本地运行请看后台控制台）', 'success')
+      startCountdown()
+      userCaptchaInput.value = ''
+    } else {
+      showToast(data.message || '验证码发送失败！', 'error')
+      drawCaptcha()
+    }
+  } catch (err) {
+    showToast('发送验证码请求失败！', 'error')
+  }
+}
+
 // 个人资料修改
 const showProfileDropdown = ref(false)
 const editNickname = ref('')
@@ -52,10 +322,83 @@ const editPassword = ref('')
 const editAvatarSeed = ref('')
 
 // 管理员后台面板
-const showAdminDashboard = ref(false)
 const adminTab = ref('users') // 'users' | 'logs'
 const adminUsers = ref([])
 const adminLogs = ref([])
+
+// 审计日志筛选与用户详情查看状态
+const filterLogStartDate = ref('')
+const filterLogEndDate = ref('')
+const filterLogUsername = ref('')
+const filterLogNickname = ref('')
+const filterLogAction = ref('')
+const filterLogUrl = ref('')
+const inspectedUser = ref(null)
+
+const clearLogFilters = () => {
+  filterLogStartDate.value = ''
+  filterLogEndDate.value = ''
+  filterLogUsername.value = ''
+  filterLogNickname.value = ''
+  filterLogAction.value = ''
+  filterLogUrl.value = ''
+}
+
+const inspectUser = (user) => {
+  inspectedUser.value = user
+}
+
+const quickViewLogs = (username, timeScope) => {
+  clearLogFilters()
+  filterLogUsername.value = username
+  if (timeScope === 'today') {
+    const d = new Date()
+    const pad = (n) => n.toString().padStart(2, '0')
+    const todayStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    filterLogStartDate.value = `${todayStr}T00:00`
+    filterLogEndDate.value = `${todayStr}T23:59`
+  }
+  adminTab.value = 'logs'
+  inspectedUser.value = null
+}
+
+const filteredLogs = computed(() => {
+  return adminLogs.value.filter(log => {
+    // 1. 操作时间筛选 (起止区间时间戳对比)
+    const logTime = new Date(log.timestamp).getTime()
+    if (filterLogStartDate.value) {
+      const start = new Date(filterLogStartDate.value).getTime()
+      if (logTime < start) return false
+    }
+    if (filterLogEndDate.value) {
+      const end = new Date(filterLogEndDate.value).getTime()
+      if (logTime > end) return false
+    }
+    // 2. 账号筛选
+    if (filterLogUsername.value.trim()) {
+      const uQuery = filterLogUsername.value.trim().toLowerCase()
+      if (!log.username || !log.username.toLowerCase().includes(uQuery)) return false
+    }
+    // 3. 昵称筛选
+    if (filterLogNickname.value.trim()) {
+      const nQuery = filterLogNickname.value.trim().toLowerCase()
+      const user = adminUsers.value.find(u => u.username === log.username)
+      const nickname = user ? user.nickname : ''
+      if (!nickname || !nickname.toLowerCase().includes(nQuery)) return false
+    }
+    // 4. 操作动作筛选
+    if (filterLogAction.value.trim()) {
+      const aQuery = filterLogAction.value.trim().toLowerCase()
+      if (!log.action || !log.action.toLowerCase().includes(aQuery)) return false
+    }
+    // 5. 提取链接筛选
+    if (filterLogUrl.value.trim()) {
+      const urlQuery = filterLogUrl.value.trim().toLowerCase()
+      if (!log.targetUrl || !log.targetUrl.toLowerCase().includes(urlQuery)) return false
+    }
+    return true
+  })
+})
 
 // 新增用户表单 (管理员创建账号使用)
 const showCreateUserForm = ref(false)
@@ -98,10 +441,28 @@ const fetchWithAuth = async (url, options = {}) => {
 
 // 用户登录
 const handleLogin = async () => {
-  if (!loginUsername.value.trim() || !loginPassword.value.trim()) {
-    showToast('请输入用户名和密码！', 'error')
-    return
+  authErrors.value.loginUsername = ''
+  authErrors.value.loginPassword = ''
+  
+  let hasErr = false
+  if (!loginUsername.value.trim()) {
+    authErrors.value.loginUsername = '请输入用户名或邮箱！'
+    hasErr = true
+  } else if (loginUsername.value.includes('@')) {
+    const emailRegex = /^\S+@\S+\.\S+$/
+    if (!emailRegex.test(loginUsername.value.trim())) {
+      authErrors.value.loginUsername = '请输入有效的邮箱地址，例如 user@example.com！'
+      hasErr = true
+    }
   }
+  
+  if (!loginPassword.value.trim()) {
+    authErrors.value.loginPassword = '请输入密码！'
+    hasErr = true
+  }
+  
+  if (hasErr) return
+
   try {
     const res = await fetch(`${ENGINE_API_URL}/api/auth/login`, {
       method: 'POST',
@@ -123,30 +484,233 @@ const handleLogin = async () => {
       loginPassword.value = ''
     } else {
       showToast(data.message || '登录失败，请检查账号密码！', 'error')
+      if (data.message && (data.message.includes('密码') || data.message.includes('错误'))) {
+        authErrors.value.loginPassword = data.message
+      } else {
+        authErrors.value.loginUsername = data.message || '登录失败，请检查账号密码！'
+      }
     }
   } catch (err) {
     showToast('网络连接失败，请确保本地后端已启动！', 'error')
   }
 }
 
-// 普通用户注册
+// 图形验证码绘制
+const drawCaptcha = () => {
+  const canvas = captchaCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  const chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz23456789'
+  let code = ''
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  captchaText.value = code
+  
+  ctx.fillStyle = '#1e293b'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  
+  ctx.font = 'bold 24px monospace'
+  ctx.textBaseline = 'middle'
+  for (let i = 0; i < code.length; i++) {
+    ctx.save()
+    const x = 15 + i * 20
+    const y = canvas.height / 2 + (Math.random() - 0.5) * 8
+    const angle = (Math.random() - 0.5) * 0.4
+    ctx.translate(x, y)
+    ctx.rotate(angle)
+    ctx.fillStyle = Math.random() > 0.5 ? '#8b5cf6' : '#d946ef'
+    ctx.fillText(code[i], 0, 0)
+    ctx.restore()
+  }
+  
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'
+    ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height)
+    ctx.lineTo(Math.random() * canvas.width, Math.random() * canvas.height)
+    ctx.stroke()
+  }
+  
+  for (let i = 0; i < 30; i++) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'
+    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 1.5, 1.5)
+  }
+}
+
+// 切换 Auth Tab
+const switchAuthTab = (tab) => {
+  authTab.value = tab
+  userCaptchaInput.value = ''
+  
+  // 彻底清空所有表单字段，防止信息泄露
+  loginUsername.value = ''
+  loginPassword.value = ''
+  regUsername.value = ''
+  regPassword.value = ''
+  regNickname.value = ''
+  regCode.value = ''
+  resetEmail.value = ''
+  resetCode.value = ''
+  resetPassword.value = ''
+  
+  // 清空错误提示
+  Object.keys(authErrors.value).forEach(key => {
+    authErrors.value[key] = ''
+  })
+  if (tab === 'register' || tab === 'forgot') {
+    setTimeout(drawCaptcha, 50)
+  }
+}
+
+// 邮箱验证码倒计时
+let countdownTimer = null
+const startCountdown = () => {
+  countdown.value = 60
+  if (countdownTimer) clearInterval(countdownTimer)
+  countdownTimer = setInterval(() => {
+    if (countdown.value > 0) {
+      countdown.value--
+    } else {
+      clearInterval(countdownTimer)
+    }
+  }, 1000)
+}
+
+// 发送邮箱验证码
+const handleSendCode = async (type) => {
+  // 清空本表单相关错误提示
+  if (type === 'register') {
+    authErrors.value.regUsername = ''
+    authErrors.value.regCaptcha = ''
+  } else {
+    authErrors.value.resetEmail = ''
+    authErrors.value.resetCaptcha = ''
+  }
+
+  const email = type === 'register' ? regUsername.value.trim() : resetEmail.value.trim()
+  let hasErr = false
+
+  if (!email) {
+    if (type === 'register') {
+      authErrors.value.regUsername = '请输入邮箱地址！'
+    } else {
+      authErrors.value.resetEmail = '请输入邮箱地址！'
+    }
+    hasErr = true
+  } else {
+    const emailRegex = /^\S+@\S+\.\S+$/
+    if (!emailRegex.test(email)) {
+      if (type === 'register') {
+        authErrors.value.regUsername = '请输入有效的邮箱地址，例如 user@example.com！'
+      } else {
+        authErrors.value.resetEmail = '请输入有效的邮箱地址，例如 user@example.com！'
+      }
+      hasErr = true
+    }
+  }
+
+  // 校验图形验证码
+  if (!userCaptchaInput.value.trim()) {
+    if (type === 'register') {
+      authErrors.value.regCaptcha = '请输入图形验证码！'
+    } else {
+      authErrors.value.resetCaptcha = '请输入图形验证码！'
+    }
+    hasErr = true
+  } else if (userCaptchaInput.value.trim().toLowerCase() !== captchaText.value.toLowerCase()) {
+    if (type === 'register') {
+      authErrors.value.regCaptcha = '图形验证码不正确！'
+    } else {
+      authErrors.value.resetCaptcha = '图形验证码不正确！'
+    }
+    drawCaptcha()
+    userCaptchaInput.value = ''
+    hasErr = true
+  }
+
+  if (hasErr) return
+
+  try {
+    const res = await fetch(`${ENGINE_API_URL}/api/auth/send-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, type })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast('验证码已发送！请检查邮箱（本地运行请看后台控制台）', 'success')
+      startCountdown()
+      userCaptchaInput.value = ''
+    } else {
+      showToast(data.message || '验证码发送失败！', 'error')
+      if (type === 'register') {
+        authErrors.value.regUsername = data.message || '验证码发送失败！'
+      } else {
+        authErrors.value.resetEmail = data.message || '验证码发送失败！'
+      }
+      drawCaptcha()
+    }
+  } catch (err) {
+    showToast('发送验证码请求失败！', 'error')
+  }
+}
+
+// 普通用户注册 (升级为邮箱 + 验证码验证)
 const handleRegister = async () => {
-  if (!regUsername.value.trim() || !regPassword.value.trim()) {
-    showToast('用户名和密码不能为空！', 'error')
-    return
+  authErrors.value.regUsername = ''
+  authErrors.value.regPassword = ''
+  authErrors.value.regNickname = ''
+  authErrors.value.regCode = ''
+
+  let hasErr = false
+  const email = regUsername.value.trim()
+  if (!email) {
+    authErrors.value.regUsername = '请输入邮箱地址！'
+    hasErr = true
+  } else {
+    const emailRegex = /^\S+@\S+\.\S+$/
+    if (!emailRegex.test(email)) {
+      authErrors.value.regUsername = '请输入有效的邮箱地址，例如 user@example.com！'
+      hasErr = true
+    }
   }
-  if (regUsername.value.trim().length < 3) {
-    showToast('用户名长度至少为3位！', 'error')
-    return
+
+  const password = regPassword.value.trim()
+  if (!password) {
+    authErrors.value.regPassword = '请输入密码！'
+    hasErr = true
+  } else if (password.length < 6) {
+    authErrors.value.regPassword = '密码长度不能少于6位！'
+    hasErr = true
   }
+
+  const nickname = regNickname.value.trim()
+  if (!nickname) {
+    authErrors.value.regNickname = '请输入昵称！'
+    hasErr = true
+  }
+
+  const code = regCode.value.trim()
+  if (!code) {
+    authErrors.value.regCode = '请输入邮箱验证码！'
+    hasErr = true
+  } else if (code.length !== 6 || !/^\d+$/.test(code)) {
+    authErrors.value.regCode = '验证码必须是6位数字！'
+    hasErr = true
+  }
+
+  if (hasErr) return
+
   try {
     const res = await fetch(`${ENGINE_API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: regUsername.value.trim(),
-        password: regPassword.value.trim(),
-        nickname: regNickname.value.trim()
+        username: email,
+        password: password,
+        nickname: nickname,
+        code: code
       })
     })
     const data = await res.json()
@@ -157,11 +721,91 @@ const handleRegister = async () => {
       regUsername.value = ''
       regPassword.value = ''
       regNickname.value = ''
+      regCode.value = ''
     } else {
-      showToast(data.message || '注册失败，该用户名可能已被占用！', 'error')
+      showToast(data.message || '注册失败！', 'error')
+      if (data.message && data.message.includes('验证码')) {
+        authErrors.value.regCode = data.message
+      } else if (data.message && data.message.includes('邮箱')) {
+        authErrors.value.regUsername = data.message
+      } else {
+        authErrors.value.regUsername = data.message || '注册失败！'
+      }
     }
   } catch (err) {
     showToast('注册接口请求失败！', 'error')
+  }
+}
+
+// 重置密码
+const handleResetPassword = async () => {
+  authErrors.value.resetEmail = ''
+  authErrors.value.resetCode = ''
+  authErrors.value.resetPassword = ''
+
+  let hasErr = false
+  const email = resetEmail.value.trim()
+  if (!email) {
+    authErrors.value.resetEmail = '请输入邮箱地址！'
+    hasErr = true
+  } else {
+    const emailRegex = /^\S+@\S+\.\S+$/
+    if (!emailRegex.test(email)) {
+      authErrors.value.resetEmail = '请输入有效的邮箱地址，例如 user@example.com！'
+      hasErr = true
+    }
+  }
+
+  const code = resetCode.value.trim()
+  if (!code) {
+    authErrors.value.resetCode = '请输入安全验证码！'
+    hasErr = true
+  } else if (code.length !== 6 || !/^\d+$/.test(code)) {
+    authErrors.value.resetCode = '验证码必须是6位数字！'
+    hasErr = true
+  }
+
+  const password = resetPassword.value.trim()
+  if (!password) {
+    authErrors.value.resetPassword = '请输入新密码！'
+    hasErr = true
+  } else if (password.length < 6) {
+    authErrors.value.resetPassword = '新密码长度不能少于6位！'
+    hasErr = true
+  }
+
+  if (hasErr) return
+
+  try {
+    const res = await fetch(`${ENGINE_API_URL}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        code: code,
+        newPassword: password
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast('密码重置成功，请使用新密码登录！', 'success')
+      authTab.value = 'login'
+      loginUsername.value = resetEmail.value
+      resetEmail.value = ''
+      resetCode.value = ''
+      resetPassword.value = ''
+    } else {
+      showToast(data.message || '重置密码失败，请检查验证码！', 'error')
+      if (data.message && data.message.includes('验证码')) {
+        authErrors.value.resetCode = data.message
+      } else if (data.message && data.message.includes('邮箱')) {
+        authErrors.value.resetEmail = data.message
+      } else {
+        authErrors.value.resetEmail = data.message || '重置密码失败！'
+      }
+    }
+  } catch (err) {
+    showToast('请求重置密码失败！', 'error')
   }
 }
 
@@ -176,6 +820,17 @@ const handleLogout = () => {
   showProfileDropdown.value = false
   parseResult.value = null
   errorMsg.value = ''
+  
+  // 清空所有表单项以防止会话残留信息泄露
+  loginUsername.value = ''
+  loginPassword.value = ''
+  regUsername.value = ''
+  regPassword.value = ''
+  regNickname.value = ''
+  regCode.value = ''
+  resetEmail.value = ''
+  resetCode.value = ''
+  resetPassword.value = ''
 }
 
 // 校验登录态
@@ -210,9 +865,19 @@ const checkAuthSession = async () => {
 // 开启编辑个人资料
 const openEditProfile = () => {
   if (!currentUser.value) return
-  editNickname.value = currentUser.value.nickname
+  editNickname.value = currentUser.value.nickname || ''
+  editBio.value = currentUser.value.bio || ''
   editPassword.value = ''
-  editAvatarSeed.value = currentUser.value.username
+  
+  // 从头像 URL 中解析种子，若包含邮箱/用户名则替换为安全随机种子
+  const currentAvatar = currentUser.value.avatar || ''
+  const urlMatch = currentAvatar.match(/seed=([^&]+)/)
+  let seedVal = urlMatch ? decodeURIComponent(urlMatch[1]) : ''
+  if (!seedVal || seedVal.includes('@') || seedVal === currentUser.value.username) {
+    seedVal = Math.random().toString(36).substring(2, 10)
+  }
+  editAvatarSeed.value = seedVal
+  
   currentPage.value = 'profile'
   showProfileDropdown.value = false
 }
@@ -233,13 +898,14 @@ const handleProfileUpdate = async () => {
       body: JSON.stringify({
         nickname: editNickname.value.trim(),
         avatar: avatarUrl,
-        password: editPassword.value.trim() || undefined
+        bio: editBio.value.trim()
       })
     })
     const data = await res.json()
     if (res.ok && data.success) {
       currentUser.value.nickname = data.user.nickname
       currentUser.value.avatar = data.user.avatar
+      currentUser.value.bio = data.user.bio
       currentPage.value = 'main'
       showToast('个人资料更新成功！', 'success')
     } else {
@@ -281,6 +947,8 @@ const openAdminDashboard = async () => {
   showProfileDropdown.value = false
   adminTab.value = 'users'
   showCreateUserForm.value = false
+  inspectedUser.value = null
+  clearLogFilters()
   currentPage.value = 'admin'
   await fetchAdminUsers()
   await fetchAdminLogs()
@@ -517,7 +1185,7 @@ const showToast = (message, type = 'success') => {
 }
 
 // 保存豆包与 ASR 语音识别配置设置
-const saveSettings = () => {
+const saveSettings = async () => {
   localStorage.setItem('doubaoApiKey', doubaoApiKey.value)
   localStorage.setItem('doubaoEndpointId', doubaoEndpointId.value)
   localStorage.setItem('enableDoubao', enableDoubao.value ? 'true' : 'false')
@@ -531,19 +1199,122 @@ const saveSettings = () => {
   localStorage.setItem('siliconflowLlApiKey', siliconflowLlApiKey.value)
   localStorage.setItem('siliconflowLlModel', siliconflowLlModel.value)
 
+  // System Administrator also saves SMTP configurations to database
+  if (currentUser.value && currentUser.value.role === 'admin') {
+    try {
+      const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/smtp-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: smtpHost.value,
+          port: smtpPort.value,
+          secure: smtpSecure.value,
+          user: smtpUser.value,
+          pass: smtpPass.value,
+          senderName: smtpSenderName.value
+        })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        showToast(data.message || 'SMTP 邮箱配置保存失败！', 'error')
+        return
+      }
+    } catch (e) {
+      showToast('SMTP 邮箱配置保存请求失败！', 'error')
+      return
+    }
+  }
+
   currentPage.value = 'main'
   showToast('配置设置已成功保存并生效！', 'success')
 }
 
+// 备份配置与重置恢复配置 (限 Admin/Super)
+const handleBackupSettings = async () => {
+  try {
+    const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/config-backup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        doubaoApiKey: doubaoApiKey.value,
+        doubaoEndpointId: doubaoEndpointId.value,
+        enableDoubao: enableDoubao.value,
+        asrApiKey: asrApiKey.value,
+        asrEndpoint: asrEndpoint.value,
+        asrModel: asrModel.value,
+        enableAsr: enableAsr.value,
+        summaryProvider: summaryProvider.value,
+        siliconflowLlApiKey: siliconflowLlApiKey.value,
+        siliconflowLlModel: siliconflowLlModel.value
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast('AI 配置已成功备份到服务器！', 'success')
+    } else {
+      showToast(data.message || '备份失败！', 'error')
+    }
+  } catch (e) {
+    showToast('备份请求发送失败！', 'error')
+  }
+}
+
+const handleRestoreSettings = async () => {
+  if (!confirm('确认要从备份文件恢复所有 AI 配置吗？这将会覆盖您当前的所有配置！')) {
+    return
+  }
+  try {
+    const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/config-backup`)
+    const data = await res.json()
+    if (res.ok && data.success && data.config) {
+      const c = data.config
+      doubaoApiKey.value = c.doubaoApiKey || ''
+      doubaoEndpointId.value = c.doubaoEndpointId || ''
+      enableDoubao.value = !!c.enableDoubao
+      asrApiKey.value = c.asrApiKey || ''
+      asrEndpoint.value = c.asrEndpoint || ''
+      asrModel.value = c.asrModel || ''
+      enableAsr.value = !!c.enableAsr
+      summaryProvider.value = c.summaryProvider || 'siliconflow'
+      siliconflowLlApiKey.value = c.siliconflowLlApiKey || ''
+      siliconflowLlModel.value = c.siliconflowLlModel || ''
+      
+      // Save directly to localStorage
+      localStorage.setItem('doubaoApiKey', doubaoApiKey.value)
+      localStorage.setItem('doubaoEndpointId', doubaoEndpointId.value)
+      localStorage.setItem('enableDoubao', enableDoubao.value ? 'true' : 'false')
+      localStorage.setItem('asrApiKey', asrApiKey.value)
+      localStorage.setItem('asrEndpoint', asrEndpoint.value)
+      localStorage.setItem('asrModel', asrModel.value)
+      localStorage.setItem('enableAsr', enableAsr.value ? 'true' : 'false')
+      localStorage.setItem('summaryProvider', summaryProvider.value)
+      localStorage.setItem('siliconflowLlApiKey', siliconflowLlApiKey.value)
+      localStorage.setItem('siliconflowLlModel', siliconflowLlModel.value)
+      
+      showToast('已成功从服务器备份文件重置并恢复所有配置！', 'success')
+    } else {
+      showToast(data.message || '恢复备份配置失败！', 'error')
+    }
+  } catch (e) {
+    showToast('读取备份配置文件请求失败！', 'error')
+  }
+}
+
 // 触发设置齿轮点击
 const triggerSettingsClick = () => {
+  showProfileDropdown.value = false // 立即关闭右上角下拉菜单
   if (!currentUser.value) {
     showToast('请先登录账号！', 'error')
     return
   }
 
   if (currentUser.value.role === 'admin') {
-    currentPage.value = currentPage.value === 'settings' ? 'main' : 'settings'
+    if (currentPage.value !== 'settings') {
+      fetchSmtpSettings()
+      currentPage.value = 'settings'
+    } else {
+      currentPage.value = 'main'
+    }
     return
   }
 
@@ -789,13 +1560,68 @@ const platformClass = computed(() => {
   return 'generic'
 })
 
+// 解析提取文案中的话题标签与主体文本
+const parsedCopywriting = computed(() => {
+  if (!parseResult.value) {
+    return { tags: [], text: '' }
+  }
+  
+  const desc = parseResult.value.description || ''
+  const tags = []
+  
+  // 提取 #话题
+  const hashtagRegex = /#([^\s#]+)/g
+  const matches = desc.match(hashtagRegex)
+  if (matches) {
+    matches.forEach(m => {
+      if (!tags.includes(m)) {
+        tags.push(m)
+      }
+    })
+  }
+
+  // 提取 B站 格式的 "视频标签: xxx、yyy"
+  const biliTagRegex = /视频标签:\s*([^\n。；\uff1b]+)/
+  const biliTagMatch = desc.match(biliTagRegex)
+  if (biliTagMatch) {
+    const biliTags = biliTagMatch[1].split(/[、\s\uff0c,]/).filter(t => t.trim().length > 0)
+    biliTags.forEach(t => {
+      const formatted = t.startsWith('#') ? t : `#${t}`
+      if (!tags.includes(formatted)) {
+        tags.push(formatted)
+      }
+    })
+  }
+
+  // 清洗纯文本描述以防描述重复显示标签
+  let cleanedText = desc
+    .replace(hashtagRegex, '')
+    .replace(/视频标签:\s*[^\n。；\uff1b]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // 移出开头的多余标点
+  cleanedText = cleanedText.replace(/^[。，、；:：\s]+|[。，、；:：\s]+$/g, '')
+
+  const isNoContent = !cleanedText || 
+                      cleanedText === '该视频未提供额外的文案描述。' || 
+                      cleanedText === '暂无详细描述文案' || 
+                      cleanedText === '未获取到视频的语音字幕文本。' ||
+                      cleanedText.length < 3
+
+  return {
+    tags,
+    text: isNoContent ? '' : cleanedText
+  }
+})
+
 const clearInput = () => {
   inputUrl.value = ''
 }
 
 const proxyVideoUrl = computed(() => {
   if (!parseResult.value) return ''
-  return `${ENGINE_API_URL}/api/download?videoUrl=${encodeURIComponent(parseResult.value.videoUrl)}&referer=${encodeURIComponent(parseResult.value.targetUrl)}&title=${encodeURIComponent(parseResult.value.title)}&accessKey=${encodeURIComponent(accessKey.value)}`
+  return `${ENGINE_API_URL}/api/download?videoUrl=${encodeURIComponent(parseResult.value.videoUrl)}&referer=${encodeURIComponent(parseResult.value.targetUrl)}&title=${encodeURIComponent(parseResult.value.title)}&accessKey=${encodeURIComponent(accessKey.value)}&token=${encodeURIComponent(token.value)}`
 })
 
 const copyUrl = (url, msg = '高清直链已复制到剪贴板！') => {
@@ -825,6 +1651,216 @@ const fillExample = (url) => {
       <span class="toast-message">{{ toast.message }}</span>
     </div>
   </Transition>
+
+  <!-- Change Password Modal (Dual mode: Normal vs Email Verification Code Reset) -->
+  <Transition name="toast-fade">
+    <div v-if="showChangePasswordModal" class="settings-overlay" @click.self="showChangePasswordModal = false">
+      <div class="settings-modal change-pw-modal" style="max-width: 440px; position: relative; overflow: visible;">
+        <!-- Card glows inside modal -->
+        <div class="auth-card-glow glow-1" style="opacity: 0.1; width: 180px; height: 180px; filter: blur(50px);"></div>
+        <div class="auth-card-glow glow-2" style="opacity: 0.1; width: 180px; height: 180px; filter: blur(50px);"></div>
+
+        <button class="settings-close" @click="showChangePasswordModal = false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        
+        <h3 class="settings-title" style="margin-bottom: 5px;">🔐 修改账号登录密码</h3>
+        
+        <div class="admin-tabs" style="margin-top: 15px; margin-bottom: 20px;">
+          <button 
+            class="admin-tab-btn" 
+            :class="{ 'active': changePwTab === 'normal' }"
+            @click="switchChangePwTab('normal')"
+          >
+            常规修改
+          </button>
+          <button 
+            class="admin-tab-btn" 
+            :class="{ 'active': changePwTab === 'code' }"
+            @click="switchChangePwTab('code')"
+            v-if="currentUser?.username.includes('@')"
+          >
+            邮箱验证重置
+          </button>
+        </div>
+
+        <!-- Mode 1: Normal Password Change -->
+        <div v-if="changePwTab === 'normal'" class="auth-form animate-fade-in" style="gap: 12px; text-align: left;">
+          <div class="form-group">
+            <label class="form-label">原密码</label>
+            <div class="input-wrapper" :class="{ 'has-error': changePwErrors.old }">
+              <span class="input-icon">🔒</span>
+              <input 
+                type="password" 
+                v-model="changePwOld" 
+                placeholder="请输入当前账号的原密码" 
+                class="form-input"
+                @input="changePwErrors.old = ''"
+              />
+            </div>
+            <Transition name="slide-fade">
+              <span v-if="changePwErrors.old" class="field-error-msg">
+                <span class="error-msg-icon">⚠️</span> {{ changePwErrors.old }}
+              </span>
+            </Transition>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">输入新密码</label>
+            <div class="input-wrapper" :class="{ 'has-error': changePwErrors.new }">
+              <span class="input-icon">🔑</span>
+              <input 
+                type="password" 
+                v-model="changePwNew" 
+                placeholder="请输入新密码 (不少于6位)" 
+                class="form-input"
+                @input="changePwErrors.new = ''"
+              />
+            </div>
+            <Transition name="slide-fade">
+              <span v-if="changePwErrors.new" class="field-error-msg">
+                <span class="error-msg-icon">⚠️</span> {{ changePwErrors.new }}
+              </span>
+            </Transition>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">确认新密码</label>
+            <div class="input-wrapper" :class="{ 'has-error': changePwErrors.confirm }">
+              <span class="input-icon">✅</span>
+              <input 
+                type="password" 
+                v-model="changePwConfirm" 
+                placeholder="请再次输入新密码" 
+                class="form-input"
+                @input="changePwErrors.confirm = ''"
+                @keyup.enter="handleChangePasswordNormal"
+              />
+            </div>
+            <Transition name="slide-fade">
+              <span v-if="changePwErrors.confirm" class="field-error-msg">
+                <span class="error-msg-icon">⚠️</span> {{ changePwErrors.confirm }}
+              </span>
+            </Transition>
+          </div>
+
+          <button class="settings-save-btn" style="margin-top: 15px; width: 100%;" @click="handleChangePasswordNormal">确认修改密码</button>
+        </div>
+
+        <!-- Mode 2: Reset Password via Email Code -->
+        <div v-else-if="changePwTab === 'code'" class="auth-form animate-fade-in" style="gap: 12px; text-align: left;">
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: -5px; margin-bottom: 10px; line-height: 1.4;">
+            验证码将发送到发信邮箱绑定的 <strong style="color: var(--color-violet)">{{ maskedEmail }}</strong>。验证通过可直接重置密码。
+          </p>
+
+          <!-- 图形验证码 -->
+          <div class="form-group">
+            <label class="form-label">人机验证码</label>
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <div style="flex: 1; display: flex; flex-direction: column;">
+                <div class="input-wrapper" :class="{ 'has-error': changePwErrors.captcha }">
+                  <span class="input-icon">🛡️</span>
+                  <input 
+                    type="text" 
+                    v-model="userCaptchaInput" 
+                    placeholder="图形验证码" 
+                    class="form-input" 
+                    @input="changePwErrors.captcha = ''"
+                  />
+                </div>
+                <Transition name="slide-fade">
+                  <span v-if="changePwErrors.captcha" class="field-error-msg">
+                    <span class="error-msg-icon">⚠️</span> {{ changePwErrors.captcha }}
+                  </span>
+                </Transition>
+              </div>
+              <canvas 
+                ref="captchaCanvasRef" 
+                width="100" 
+                height="46" 
+                style="border-radius: 12px; cursor: pointer; border: 1px solid var(--border-color); background: #111224; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.2s;" 
+                @click="drawCaptcha"
+                title="点击刷新验证码"
+              ></canvas>
+            </div>
+          </div>
+
+          <!-- 邮箱验证码 -->
+          <div class="form-group">
+            <label class="form-label">邮箱验证码</label>
+            <div style="display: flex; gap: 12px; align-items: flex-start;">
+              <div style="flex: 1; display: flex; flex-direction: column;">
+                <div class="input-wrapper" :class="{ 'has-error': changePwErrors.code }">
+                  <span class="input-icon">🔑</span>
+                  <input 
+                    type="text" 
+                    v-model="changePwCode" 
+                    placeholder="6位邮箱验证码" 
+                    class="form-input" 
+                    @input="changePwErrors.code = ''"
+                  />
+                </div>
+                <Transition name="slide-fade">
+                  <span v-if="changePwErrors.code" class="field-error-msg">
+                    <span class="error-msg-icon">⚠️</span> {{ changePwErrors.code }}
+                  </span>
+                </Transition>
+              </div>
+              <button 
+                class="send-code-btn" 
+                :disabled="countdown > 0" 
+                @click="handleSendCodeInModal"
+              >
+                {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">设置新密码</label>
+            <div class="input-wrapper" :class="{ 'has-error': changePwErrors.resetNew }">
+              <span class="input-icon">🔒</span>
+              <input 
+                type="password" 
+                v-model="changePwResetNew" 
+                placeholder="请输入新密码 (不少于6位)" 
+                class="form-input"
+                @input="changePwErrors.resetNew = ''"
+              />
+            </div>
+            <Transition name="slide-fade">
+              <span v-if="changePwErrors.resetNew" class="field-error-msg">
+                <span class="error-msg-icon">⚠️</span> {{ changePwErrors.resetNew }}
+              </span>
+            </Transition>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">确认新密码</label>
+            <div class="input-wrapper" :class="{ 'has-error': changePwErrors.resetConfirm }">
+              <span class="input-icon">✅</span>
+              <input 
+                type="password" 
+                v-model="changePwResetConfirm" 
+                placeholder="请再次输入新密码" 
+                class="form-input"
+                @input="changePwErrors.resetConfirm = ''"
+                @keyup.enter="handleChangePasswordCode"
+              />
+            </div>
+            <Transition name="slide-fade">
+              <span v-if="changePwErrors.resetConfirm" class="field-error-msg">
+                <span class="error-msg-icon">⚠️</span> {{ changePwErrors.resetConfirm }}
+              </span>
+            </Transition>
+          </div>
+
+          <button class="settings-save-btn" style="margin-top: 15px; width: 100%;" @click="handleChangePasswordCode">确认重置密码</button>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
 
   <!-- Settings Password Verification Modal (Security gate modal overlay, remains as modal) -->
   <Transition name="toast-fade">
@@ -886,97 +1922,316 @@ const fillExample = (url) => {
   </Transition>
 
   <!-- ==================== PAGE: AUTH ==================== -->
-  <div v-if="currentPage === 'auth' || !currentUser" class="auth-overlay">
+    <div v-if="currentPage === 'auth' || !currentUser" class="auth-overlay">
     <div class="auth-card animate-slide-up">
+      <!-- Glow decoration elements inside card -->
+      <div class="auth-card-glow glow-1"></div>
+      <div class="auth-card-glow glow-2"></div>
+
       <div class="auth-logo">
         <span class="logo-text">VidFetch</span>
         <span class="badge-pro">ULTRA</span>
       </div>
       <p class="auth-subtitle">视频嗅探下载与 AI 智能提取专家</p>
       
-      <div class="auth-tabs">
+      <div class="auth-tabs" v-if="authTab !== 'forgot'">
         <button 
           class="auth-tab-btn" 
           :class="{ 'active': authTab === 'login' }"
-          @click="authTab = 'login'"
+          @click="switchAuthTab('login')"
         >
-          登录
+          <span class="tab-btn-icon">🔑</span> 登录
         </button>
         <button 
           class="auth-tab-btn" 
           :class="{ 'active': authTab === 'register' }"
-          @click="authTab = 'register'"
+          @click="switchAuthTab('register')"
         >
-          注册普通用户
+          <span class="tab-btn-icon">⚡</span> 注册用户
+        </button>
+      </div>
+      <div class="auth-tabs" v-else>
+        <button 
+          class="auth-tab-btn active"
+          @click="switchAuthTab('forgot')"
+        >
+          🔑 找回密码
         </button>
       </div>
       
       <!-- Login Form -->
       <div v-if="authTab === 'login'" class="auth-form animate-fade-in">
         <div class="form-group">
-          <label class="form-label">用户名</label>
-          <input 
-            type="text" 
-            v-model="loginUsername" 
-            placeholder="请输入用户名 (如: mediaAdmin)" 
-            class="form-input"
-            @keyup.enter="handleLogin"
-          />
+          <label class="form-label">邮箱 / 用户名</label>
+          <div class="input-wrapper" :class="{ 'has-error': authErrors.loginUsername }">
+            <span class="input-icon">👤</span>
+            <input 
+              type="text" 
+              v-model="loginUsername" 
+              placeholder="请输入邮箱或管理员账号" 
+              class="form-input"
+              @input="authErrors.loginUsername = ''"
+              @keyup.enter="handleLogin"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.loginUsername" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.loginUsername }}
+            </span>
+          </Transition>
         </div>
         <div class="form-group">
           <label class="form-label">密码</label>
-          <input 
-            type="password" 
-            v-model="loginPassword" 
-            placeholder="请输入密码" 
-            class="form-input"
-            @keyup.enter="handleLogin"
-          />
+          <div class="input-wrapper" :class="{ 'has-error': authErrors.loginPassword }">
+            <span class="input-icon">🔒</span>
+            <input 
+              type="password" 
+              v-model="loginPassword" 
+              placeholder="请输入密码" 
+              class="form-input"
+              @input="authErrors.loginPassword = ''"
+              @keyup.enter="handleLogin"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.loginPassword" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.loginPassword }}
+            </span>
+          </Transition>
+        </div>
+        <div style="text-align: right; margin-top: -4px; margin-bottom: 8px;">
+          <a href="javascript:;" style="color: var(--color-violet); font-size: 0.85rem; text-decoration: none;" @click="switchAuthTab('forgot')">忘记密码？</a>
         </div>
         <button class="auth-submit-btn" @click="handleLogin">登录 VidFetch</button>
       </div>
       
       <!-- Register Form -->
-      <div v-else class="auth-form animate-fade-in">
+      <div v-else-if="authTab === 'register'" class="auth-form animate-fade-in register-form-compact">
         <div class="form-group">
-          <label class="form-label">用户名 (至少3位)</label>
-          <input 
-            type="text" 
-            v-model="regUsername" 
-            placeholder="创建登录账号名" 
-            class="form-input"
-            @keyup.enter="handleRegister"
-          />
+          <label class="form-label">邮箱地址</label>
+          <div class="input-wrapper no-icon" :class="{ 'has-error': authErrors.regUsername }">
+            <input 
+              type="text" 
+              v-model="regUsername" 
+              placeholder="请输入您的邮箱" 
+              class="form-input"
+              @input="authErrors.regUsername = ''"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.regUsername" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.regUsername }}
+            </span>
+          </Transition>
         </div>
         <div class="form-group">
-          <label class="form-label">密码</label>
-          <input 
-            type="password" 
-            v-model="regPassword" 
-            placeholder="设置登录密码" 
-            class="form-input"
-            @keyup.enter="handleRegister"
-          />
+          <label class="form-label">设置密码</label>
+          <div class="input-wrapper no-icon" :class="{ 'has-error': authErrors.regPassword }">
+            <input 
+              type="password" 
+              v-model="regPassword" 
+              placeholder="请输入注册密码 (不少于6位)" 
+              class="form-input"
+              @input="authErrors.regPassword = ''"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.regPassword" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.regPassword }}
+            </span>
+          </Transition>
         </div>
         <div class="form-group">
           <label class="form-label">昵称 (显示名称)</label>
-          <input 
-            type="text" 
-            v-model="regNickname" 
-            placeholder="设置您的显示昵称" 
-            class="form-input"
-            @keyup.enter="handleRegister"
-          />
+          <div class="input-wrapper no-icon" :class="{ 'has-error': authErrors.regNickname }">
+            <input 
+              type="text" 
+              v-model="regNickname" 
+              placeholder="设置您的显示昵称" 
+              class="form-input"
+              @input="authErrors.regNickname = ''"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.regNickname" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.regNickname }}
+            </span>
+          </Transition>
+        </div>
+        <!-- 图形验证码 -->
+        <div class="form-group">
+          <label class="form-label">人机验证码</label>
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <div class="input-wrapper no-icon" :class="{ 'has-error': authErrors.regCaptcha }">
+                <input 
+                  type="text" 
+                  v-model="userCaptchaInput" 
+                  placeholder="图形验证码" 
+                  class="form-input" 
+                  @input="authErrors.regCaptcha = ''"
+                />
+              </div>
+              <Transition name="slide-fade">
+                <span v-if="authErrors.regCaptcha" class="field-error-msg">
+                  <span class="error-msg-icon">⚠️</span> {{ authErrors.regCaptcha }}
+                </span>
+              </Transition>
+            </div>
+            <canvas 
+              ref="captchaCanvasRef" 
+              width="100" 
+              height="46" 
+              style="border-radius: 12px; cursor: pointer; border: 1px solid var(--border-color); background: #111224; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.2s;" 
+              @click="drawCaptcha"
+              title="点击刷新验证码"
+            ></canvas>
+          </div>
+        </div>
+        <!-- 邮箱验证码 -->
+        <div class="form-group">
+          <label class="form-label">邮箱验证码</label>
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <div class="input-wrapper no-icon" :class="{ 'has-error': authErrors.regCode }">
+                <input 
+                  type="text" 
+                  v-model="regCode" 
+                  placeholder="6位邮箱验证码" 
+                  class="form-input" 
+                  @input="authErrors.regCode = ''"
+                  @keyup.enter="handleRegister"
+                />
+              </div>
+              <Transition name="slide-fade">
+                <span v-if="authErrors.regCode" class="field-error-msg">
+                  <span class="error-msg-icon">⚠️</span> {{ authErrors.regCode }}
+                </span>
+              </Transition>
+            </div>
+            <button 
+              class="send-code-btn" 
+              :disabled="countdown > 0" 
+              @click="handleSendCode('register')"
+            >
+              {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+            </button>
+          </div>
         </div>
         <button class="auth-submit-btn" @click="handleRegister">确认注册账号</button>
       </div>
+
+      <!-- Forgot Password Form -->
+      <div v-else-if="authTab === 'forgot'" class="auth-form animate-fade-in">
+        <div class="form-group">
+          <label class="form-label">注册邮箱</label>
+          <div class="input-wrapper" :class="{ 'has-error': authErrors.resetEmail }">
+            <span class="input-icon">✉️</span>
+            <input 
+              type="text" 
+              v-model="resetEmail" 
+              placeholder="请输入您绑定的注册邮箱" 
+              class="form-input"
+              @input="authErrors.resetEmail = ''"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.resetEmail" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.resetEmail }}
+            </span>
+          </Transition>
+        </div>
+        <!-- 图形验证码 -->
+        <div class="form-group">
+          <label class="form-label">人机验证码</label>
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <div class="input-wrapper" :class="{ 'has-error': authErrors.resetCaptcha }">
+                <span class="input-icon">🛡️</span>
+                <input 
+                  type="text" 
+                  v-model="userCaptchaInput" 
+                  placeholder="图形验证码" 
+                  class="form-input" 
+                  @input="authErrors.resetCaptcha = ''"
+                />
+              </div>
+              <Transition name="slide-fade">
+                <span v-if="authErrors.resetCaptcha" class="field-error-msg">
+                  <span class="error-msg-icon">⚠️</span> {{ authErrors.resetCaptcha }}
+                </span>
+              </Transition>
+            </div>
+            <canvas 
+              ref="captchaCanvasRef" 
+              width="100" 
+              height="46" 
+              style="border-radius: 12px; cursor: pointer; border: 1px solid var(--border-color); background: #111224; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.2s;" 
+              @click="drawCaptcha"
+              title="点击刷新验证码"
+            ></canvas>
+          </div>
+        </div>
+        <!-- 邮箱验证码 -->
+        <div class="form-group">
+          <label class="form-label">邮箱验证码</label>
+          <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <div class="input-wrapper" :class="{ 'has-error': authErrors.resetCode }">
+                <span class="input-icon">🔑</span>
+                <input 
+                  type="text" 
+                  v-model="resetCode" 
+                  placeholder="6位安全验证码" 
+                  class="form-input" 
+                  @input="authErrors.resetCode = ''"
+                />
+              </div>
+              <Transition name="slide-fade">
+                <span v-if="authErrors.resetCode" class="field-error-msg">
+                  <span class="error-msg-icon">⚠️</span> {{ authErrors.resetCode }}
+                </span>
+              </Transition>
+            </div>
+            <button 
+              class="send-code-btn" 
+              :disabled="countdown > 0" 
+              @click="handleSendCode('reset')"
+            >
+              {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">重置新密码</label>
+          <div class="input-wrapper" :class="{ 'has-error': authErrors.resetPassword }">
+            <span class="input-icon">🔒</span>
+            <input 
+              type="password" 
+              v-model="resetPassword" 
+              placeholder="请输入您的新登录密码" 
+              class="form-input"
+              @input="authErrors.resetPassword = ''"
+              @keyup.enter="handleResetPassword"
+            />
+          </div>
+          <Transition name="slide-fade">
+            <span v-if="authErrors.resetPassword" class="field-error-msg">
+              <span class="error-msg-icon">⚠️</span> {{ authErrors.resetPassword }}
+            </span>
+          </Transition>
+        </div>
+        <button class="auth-submit-btn" @click="handleResetPassword">确认重置密码</button>
+        <div style="text-align: center; margin-top: 14px;">
+          <a href="javascript:;" style="color: var(--text-muted); font-size: 0.85rem; text-decoration: none; transition: color 0.2s;" @click="switchAuthTab('login')">返回登录</a>
+        </div>
+      </div>
     </div>
   </div>
-
   <!-- ==================== MAIN PAGES WRAPPER ==================== -->
   <div class="vidfetch-container" v-else>
     <!-- Top Nav / User Profile Bar -->
-    <div class="top-nav-bar">
+    <div class="top-nav-bar" v-if="currentPage === 'main'">
       <div class="nav-user-profile" @click.stop="showProfileDropdown = !showProfileDropdown">
         <img :src="currentUser.avatar" class="nav-avatar" alt="Avatar" />
         <span class="nav-nickname">{{ currentUser.nickname || currentUser.username }}</span>
@@ -1085,7 +2340,69 @@ const fillExample = (url) => {
           <span class="form-tip">提示：硅基流动的 `FunAudioLLM/SenseVoiceSmall` 模型完全免费！</span>
         </div>
 
+        <!-- SMTP Mail Server Settings (Only Admin can view/edit) -->
+        <div v-if="currentUser && currentUser.role === 'admin'">
+          <h3 class="settings-title" style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">📧 SMTP 系统邮箱验证服务</h3>
+          
+          <div class="form-group">
+            <label class="form-label">SMTP 服务器地址 (Host)</label>
+            <input type="text" v-model="smtpHost" placeholder="例如: smtp.qq.com 或 smtp.163.com" class="form-input" />
+            <span class="form-tip">提示：如果留空，验证码将以模拟形式打印至后端 Node 控制台终端（开发环境专用）。</span>
+          </div>
+
+          <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-group">
+              <label class="form-label">SMTP 端口 (Port)</label>
+              <input type="number" v-model="smtpPort" placeholder="例如: 465 或 587" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">发件人显示名称 (Sender Name)</label>
+              <input type="text" v-model="smtpSenderName" placeholder="例如: VidFetch 验证服务" class="form-input" />
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 10px; display: flex; align-items: center;">
+            <label class="form-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+              <input type="checkbox" v-model="smtpSecure" style="width: 16px; height: 16px;" />
+              <span>使用 SSL 安全连接 (Secure)</span>
+            </label>
+          </div>
+          <span class="form-tip" style="margin-top: -10px; display: block; margin-bottom: 15px;">提示：通常 465 端口需要勾选 SSL。如果是 587 或 25 端口则不勾选。</span>
+
+          <div class="form-group">
+            <label class="form-label">邮箱账号 (SMTP User)</label>
+            <input type="text" v-model="smtpUser" placeholder="您的发件邮箱地址，例如: myusername@qq.com" class="form-input" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">邮箱授权码 / 密码 (SMTP Pass)</label>
+            <input type="password" v-model="smtpPass" placeholder="请输入 SMTP 授权码或独立密码" class="form-input" />
+            <span class="form-tip">提示：网易 163 邮箱和腾讯 QQ 邮箱通常需要前往设置 -> 账户开启 SMTP 并生成“授权码”填入此处，而非邮箱原始密码。</span>
+          </div>
+        </div>
+
         <button class="settings-save-btn" style="margin-top: 20px;" @click="saveSettings">保存配置并生效</button>
+        
+        <div style="display: flex; gap: 12px; margin-top: 24px; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 20px;" v-if="currentUser && (currentUser.role === 'admin' || currentUser.role === 'super')">
+          <button 
+            class="ex-btn" 
+            style="flex: 1; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(139, 92, 246, 0.3); color: #c084fc; background: rgba(139, 92, 246, 0.05); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
+            onmouseover="this.style.background='rgba(139, 92, 246, 0.15)';"
+            onmouseout="this.style.background='rgba(139, 92, 246, 0.05)';"
+            @click="handleBackupSettings"
+          >
+            💾 备份当前配置至服务器
+          </button>
+          <button 
+            class="ex-btn" 
+            style="flex: 1; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(244, 63, 94, 0.3); color: #f43f5e; background: rgba(244, 63, 94, 0.05); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
+            onmouseover="this.style.background='rgba(244, 63, 94, 0.15)';"
+            onmouseout="this.style.background='rgba(244, 63, 94, 0.05)';"
+            @click="handleRestoreSettings"
+          >
+            🔄 从备份文件重置恢复配置
+          </button>
+        </div>
       </div>
     </main>
 
@@ -1101,13 +2418,18 @@ const fillExample = (url) => {
       
       <div class="settings-page-content animate-fade-in" style="text-align: left; margin-top: 20px;">
         <div class="form-group">
+          <label class="form-label">注册账号 (不可编辑)</label>
+          <input type="text" :value="maskedEmail" disabled class="form-input" style="opacity: 0.6; cursor: not-allowed; background: rgba(255,255,255,0.02);" />
+        </div>
+
+        <div class="form-group">
           <label class="form-label">昵称 (显示昵称)</label>
           <input type="text" v-model="editNickname" placeholder="请输入您的昵称" class="form-input" />
         </div>
-        
+
         <div class="form-group">
-          <label class="form-label">修改密码 (留空则不修改)</label>
-          <input type="password" v-model="editPassword" placeholder="输入新密码" class="form-input" />
+          <label class="form-label">个人简介</label>
+          <textarea v-model="editBio" placeholder="用一句话介绍自己吧..." class="form-input" style="height: 80px; resize: none; padding: 10px 14px; line-height: 1.5; font-family: inherit;"></textarea>
         </div>
         
         <div class="form-group">
@@ -1118,7 +2440,10 @@ const fillExample = (url) => {
           </div>
         </div>
         
-        <button class="settings-save-btn" style="margin-top: 20px;" @click="handleProfileUpdate">保存修改</button>
+        <div style="display: flex; gap: 16px; margin-top: 30px; align-items: center;">
+          <button class="settings-save-btn" style="margin-top: 0; flex: 1;" @click="handleProfileUpdate">保存修改</button>
+          <button class="change-pw-trigger-btn" @click="openChangePasswordModal">🔐 修改登录密码</button>
+        </div>
       </div>
     </main>
 
@@ -1136,14 +2461,14 @@ const fillExample = (url) => {
         <button 
           class="admin-tab-btn" 
           :class="{ 'active': adminTab === 'users' }"
-          @click="adminTab = 'users'"
+          @click="adminTab = 'users'; inspectedUser = null"
         >
           👥 账号管理
         </button>
         <button 
           class="admin-tab-btn" 
           :class="{ 'active': adminTab === 'logs' }"
-          @click="adminTab = 'logs'"
+          @click="adminTab = 'logs'; inspectedUser = null"
         >
           📋 操作日志审计
         </button>
@@ -1151,87 +2476,206 @@ const fillExample = (url) => {
       
       <!-- Users Tab -->
       <div v-if="adminTab === 'users'" class="admin-pane animate-fade-in">
-        <div class="admin-action-row" style="text-align: left; margin-bottom: 16px;">
-          <button class="create-user-toggle-btn" @click="showCreateUserForm = !showCreateUserForm">
-            {{ showCreateUserForm ? '❌ 取消创建' : '➕ 创建新账号' }}
-          </button>
-        </div>
-        
-        <!-- Create User Form -->
-        <div v-if="showCreateUserForm" class="create-user-form animate-fade-in" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align: left;">
-          <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-            <div class="form-group">
-              <label class="form-label">用户名</label>
-              <input type="text" v-model="createUsername" placeholder="用户名" class="form-input" />
+        <!-- User Detail Panel -->
+        <div v-if="inspectedUser" class="user-detail-panel animate-fade-in" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); padding: 24px; border-radius: 16px; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
+            <h3 style="margin: 0; font-size: 1.15rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+              👤 用户详情: {{ inspectedUser.nickname || inspectedUser.username }}
+            </h3>
+            <button class="back-btn" style="padding: 6px 12px; font-size: 0.8rem;" @click="inspectedUser = null">
+              返回列表
+            </button>
+          </div>
+          
+          <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+            <!-- Left part: Avatar and role -->
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; width: 120px; flex-shrink: 0;">
+              <img :src="inspectedUser.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(inspectedUser.username)}`" style="width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 2px solid var(--border-color);" alt="头像" />
+              <span class="role-badge" :class="inspectedUser.role">
+                {{ inspectedUser.role === 'admin' ? '管理员' : inspectedUser.role === 'super' ? '超级用户' : '普通用户' }}
+              </span>
             </div>
-            <div class="form-group">
-              <label class="form-label">密码</label>
-              <input type="password" v-model="createPassword" placeholder="密码" class="form-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">昵称</label>
-              <input type="text" v-model="createNickname" placeholder="显示昵称" class="form-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">角色类型</label>
-              <select v-model="createRole" class="form-input">
-                <option value="user" style="background:#0f1123; color:#f1f5f9;">普通用户 (日限5次)</option>
-                <option value="super" style="background:#0f1123; color:#f1f5f9;">超级用户 (无限制，限1个)</option>
-                <option value="admin" style="background:#0f1123; color:#f1f5f9;">系统管理员 (无限制，限1个)</option>
-              </select>
+            
+            <!-- Right part: Profile information fields -->
+            <div style="flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+              <div>
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">账号 (用户名 / 邮箱)</label>
+                <div style="color: var(--text-primary); font-weight: 600; font-size: 0.95rem; word-break: break-all;">{{ inspectedUser.username }}</div>
+              </div>
+              <div>
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">显示昵称</label>
+                <div style="color: var(--text-primary); font-weight: 600; font-size: 0.95rem;">{{ inspectedUser.nickname }}</div>
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">个人简介</label>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; background: rgba(255,255,255,0.01); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 50px; white-space: pre-wrap;">
+                  {{ inspectedUser.bio || '这家伙很懒，什么都没有留下。' }}
+                </div>
+              </div>
+              <div>
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">今日已提取次数</label>
+                <div style="color: var(--text-primary); font-weight: 700; font-size: 1.1rem;">
+                  {{ inspectedUser.usage[new Date().toISOString().split('T')[0]] || 0 }} 
+                  <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-secondary);"> / {{ inspectedUser.role === 'admin' || inspectedUser.role === 'super' ? '∞' : '5' }}</span>
+                </div>
+              </div>
             </div>
           </div>
-          <button class="settings-save-btn" style="margin-top: 10px;" @click="handleCreateUser">确认创建账号</button>
+          
+          <div style="display: flex; gap: 12px; margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; flex-wrap: wrap;">
+            <button 
+              class="settings-save-btn" 
+              style="margin-top: 0; padding: 10px 18px; font-size: 0.88rem; background: var(--gradient-glow); border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 6px;"
+              @click="quickViewLogs(inspectedUser.username, 'all')"
+            >
+              📅 查看历史操作日志
+            </button>
+            <button 
+              class="settings-save-btn" 
+              style="margin-top: 0; padding: 10px 18px; font-size: 0.88rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; border-radius: 8px; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 6px;"
+              onmouseover="this.style.background='rgba(16, 185, 129, 0.25)';"
+              onmouseout="this.style.background='rgba(16, 185, 129, 0.15)';"
+              @click="quickViewLogs(inspectedUser.username, 'today')"
+            >
+              ⚡ 查看今日筛选日志
+            </button>
+            <button 
+              class="ex-btn" 
+              style="padding: 10px 18px; border-radius: 8px; font-size: 0.88rem; font-weight: 700;" 
+              @click="inspectedUser = null"
+            >
+              返回列表
+            </button>
+          </div>
         </div>
-        
-        <!-- Users List Table -->
-        <div class="table-container">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>用户昵称</th>
-                <th>账号名</th>
-                <th>角色</th>
-                <th>今日已提取</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in adminUsers" :key="user.username">
-                <td>
-                  <div class="table-user-cell" style="display: flex; align-items: center; gap: 8px;">
-                    <img :src="user.avatar" class="table-avatar" style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05);" />
-                    <span style="font-weight: 600;">{{ user.nickname }}</span>
-                  </div>
-                </td>
-                <td>{{ user.username }}</td>
-                <td>
-                  <span class="role-badge" :class="user.role">
-                    {{ user.role === 'admin' ? '管理员' : user.role === 'super' ? '超级用户' : '普通用户' }}
-                  </span>
-                </td>
-                <td>
-                  <span style="font-weight: 700; color: var(--text-primary);">{{ user.usage[new Date().toISOString().split('T')[0]] || 0 }}</span> / 
-                  <span>{{ user.role === 'admin' || user.role === 'super' ? '∞' : '5' }}</span>
-                </td>
-                <td>
-                  <button 
-                    class="delete-user-btn" 
-                    v-if="user.username !== 'mediaAdmin' && user.username !== 'mediaSuper'"
-                    @click="handleDeleteUser(user.username)"
-                  >
-                    删除
-                  </button>
-                  <span v-else style="color: var(--text-muted); font-size: 0.8rem;">内置保护</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+
+        <div v-else class="animate-fade-in" style="display: flex; flex-direction: column; width: 100%;">
+          <div class="admin-action-row" style="text-align: left; margin-bottom: 16px;">
+            <button class="create-user-toggle-btn" @click="showCreateUserForm = !showCreateUserForm">
+              {{ showCreateUserForm ? '❌ 取消创建' : '➕ 创建新账号' }}
+            </button>
+          </div>
+          
+          <!-- Create User Form -->
+          <div v-if="showCreateUserForm" class="create-user-form animate-fade-in" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align: left;">
+            <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+              <div class="form-group">
+                <label class="form-label">用户名</label>
+                <input type="text" v-model="createUsername" placeholder="用户名" class="form-input" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">密码</label>
+                <input type="password" v-model="createPassword" placeholder="密码" class="form-input" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">昵称</label>
+                <input type="text" v-model="createNickname" placeholder="显示昵称" class="form-input" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">角色类型</label>
+                <select v-model="createRole" class="form-input">
+                  <option value="user" style="background:#0f1123; color:#f1f5f9;">普通用户 (日限5次)</option>
+                  <option value="super" style="background:#0f1123; color:#f1f5f9;">超级用户 (无限制，限1个)</option>
+                  <option value="admin" style="background:#0f1123; color:#f1f5f9;">系统管理员 (无限制，限1个)</option>
+                </select>
+              </div>
+            </div>
+            <button class="settings-save-btn" style="margin-top: 10px;" @click="handleCreateUser">确认创建账号</button>
+          </div>
+          
+          <!-- Users List Table -->
+          <div class="table-container">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>用户昵称</th>
+                  <th>账号名</th>
+                  <th>角色</th>
+                  <th>今日已提取</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="user in adminUsers" :key="user.username">
+                  <td>
+                    <div class="table-user-cell" style="display: flex; align-items: center; gap: 8px;">
+                      <img :src="user.avatar" class="table-avatar" style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05);" />
+                      <span style="font-weight: 600;">{{ user.nickname }}</span>
+                    </div>
+                  </td>
+                  <td>{{ user.username }}</td>
+                  <td>
+                    <span class="role-badge" :class="user.role">
+                      {{ user.role === 'admin' ? '管理员' : user.role === 'super' ? '超级用户' : '普通用户' }}
+                    </span>
+                  </td>
+                  <td>
+                    <span style="font-weight: 700; color: var(--text-primary);">{{ user.usage[new Date().toISOString().split('T')[0]] || 0 }}</span> / 
+                    <span>{{ user.role === 'admin' || user.role === 'super' ? '∞' : '5' }}</span>
+                  </td>
+                  <td>
+                    <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-start;">
+                      <button 
+                        class="inspect-user-btn" 
+                        @click="inspectUser(user)"
+                        style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3); padding: 4px 10px; border-radius: 6px; color: #a78bfa; cursor: pointer; font-size: 0.8rem; font-weight: 700; transition: all 0.2s;"
+                        onmouseover="this.style.background='rgba(139, 92, 246, 0.25)';"
+                        onmouseout="this.style.background='rgba(139, 92, 246, 0.15)';"
+                      >
+                        查看
+                      </button>
+                      <button 
+                        class="delete-user-btn" 
+                        v-if="user.username !== 'mediaAdmin' && user.username !== 'mediaSuper'"
+                        @click="handleDeleteUser(user.username)"
+                      >
+                        删除
+                      </button>
+                      <span v-else style="color: var(--text-muted); font-size: 0.8rem;">内置保护</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       
       <!-- Logs Tab -->
       <div v-else class="admin-pane animate-fade-in">
+        <!-- Filter Panel -->
+        <div class="logs-filter-panel" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: 12px; margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; text-align: left; align-items: flex-end;">
+          <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">操作时间范围 (起止时间)</label>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <input type="datetime-local" v-model="filterLogStartDate" class="form-input" style="padding: 6px 12px; font-size: 0.85rem; flex: 1; min-width: 150px;" />
+              <span style="color: var(--text-muted); font-size: 0.85rem;">至</span>
+              <input type="datetime-local" v-model="filterLogEndDate" class="form-input" style="padding: 6px 12px; font-size: 0.85rem; flex: 1; min-width: 150px;" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">账号 (用户名)</label>
+            <input type="text" v-model="filterLogUsername" placeholder="搜索用户名" class="form-input" style="padding: 6px 12px; font-size: 0.85rem;" />
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">用户昵称</label>
+            <input type="text" v-model="filterLogNickname" placeholder="搜索昵称" class="form-input" style="padding: 6px 12px; font-size: 0.85rem;" />
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">操作动作</label>
+            <input type="text" v-model="filterLogAction" placeholder="如: 视频提取" class="form-input" style="padding: 6px 12px; font-size: 0.85rem;" />
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">视频提取链接</label>
+            <input type="text" v-model="filterLogUrl" placeholder="搜索链接" class="form-input" style="padding: 6px 12px; font-size: 0.85rem;" />
+          </div>
+          <div>
+            <button class="ex-btn" style="width: 100%; height: 36px; padding: 0; display: flex; justify-content: center; align-items: center; border-radius: 8px; border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer;" @click="clearLogFilters">
+              🧹 重置筛选
+            </button>
+          </div>
+        </div>
+
         <div class="table-container logs-table-container">
           <table class="admin-table">
             <thead>
@@ -1243,7 +2687,7 @@ const fillExample = (url) => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(log, idx) in adminLogs" :key="idx">
+              <tr v-for="(log, idx) in filteredLogs" :key="idx">
                 <td class="log-time-cell">{{ formatDate(log.timestamp) }}</td>
                 <td>
                   <span style="font-weight: 600; color: var(--text-primary);">{{ log.username }}</span>
@@ -1257,9 +2701,9 @@ const fillExample = (url) => {
                   <span v-else>-</span>
                 </td>
               </tr>
-              <tr v-if="adminLogs.length === 0">
+              <tr v-if="filteredLogs.length === 0">
                 <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 30px;">
-                  暂无任何操作日志记录
+                  暂无符合筛选条件的操作日志记录
                 </td>
               </tr>
             </tbody>
@@ -1290,7 +2734,7 @@ const fillExample = (url) => {
         <div v-if="currentUser?.role === 'user'" class="usage-banner" :class="{ 'warning': currentUser.remaining <= 0 }">
           <div class="usage-info">
             <span v-if="currentUser.remaining > 0">🎁 免费用户今日剩余额度：<strong>{{ currentUser.remaining }}</strong> / 5 次</span>
-            <span v-else>⚠️ 今日已免费提取上限！无法继续提取/下载</span>
+            <span v-else>⚠️ 今日已达免费提取上限！无法继续提取/下载</span>
           </div>
           <div class="usage-progress" v-if="currentUser.remaining > 0">
             <div class="usage-bar" :style="{ width: `${(currentUser.remaining / 5) * 100}%` }"></div>
@@ -1479,8 +2923,16 @@ const fillExample = (url) => {
                     </div>
                     <div v-else>
                       <div class="copywriting-box">
-                        <p class="copy-text">{{ parseResult.description }}</p>
-                        <button class="copy-box-btn" @click="copyUrl(parseResult.description, '视频文案已复制！')">
+                        <!-- 话题与标签展示 (带高亮颜色且在最顶部展示) -->
+                        <div v-if="parsedCopywriting.tags.length > 0" class="copy-tags-container">
+                          <span v-for="tag in parsedCopywriting.tags" :key="tag" class="copy-highlight-tag">{{ tag }}</span>
+                        </div>
+                        
+                        <!-- 文案详情 -->
+                        <p v-if="parsedCopywriting.text" class="copy-text">{{ parsedCopywriting.text }}</p>
+                        <p v-else class="copy-text-empty">💡 该视频无额外人声文案，已为您提取顶部话题与标签。</p>
+                        
+                        <button class="copy-box-btn" @click="copyUrl(parseResult.description, '视频完整文案已复制！')">
                           一键复制视频文案
                         </button>
                       </div>
@@ -2685,6 +4137,226 @@ const fillExample = (url) => {
 
 /* ==================== 登录、账户管理与审计样式 ==================== */
 
+/* Profile Page Password Change & Modal Overlay Styles */
+.change-pw-trigger-btn {
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--color-violet);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.change-pw-trigger-btn:hover {
+  background: rgba(139, 92, 246, 0.22);
+  border-color: var(--color-violet);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.change-pw-modal {
+  padding: 30px !important;
+  border-radius: 20px !important;
+  background: linear-gradient(135deg, rgba(16, 18, 35, 0.95) 0%, rgba(10, 11, 22, 0.98) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(139, 92, 246, 0.1) !important;
+}
+
+
+/* Premium Auth Overlay Design */
+/* Compact styling for Register form */
+.register-form-compact {
+  gap: 12px !important;
+}
+.register-form-compact .form-group {
+  gap: 6px !important;
+}
+.register-form-compact .form-label {
+  margin-bottom: 2px !important;
+}
+.register-form-compact .field-error-msg {
+  margin-top: 4px !important;
+}
+.input-wrapper.no-icon .form-input {
+  padding-left: 14px !important;
+}
+
+.auth-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(4, 5, 12, 0.82);
+  backdrop-filter: blur(18px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card {
+  background: linear-gradient(135deg, rgba(16, 18, 35, 0.85) 0%, rgba(10, 11, 22, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(25px);
+  border-radius: 28px;
+  width: 90%;
+  max-width: 440px;
+  padding: 40px;
+  box-shadow: 
+    0 30px 70px rgba(0, 0, 0, 0.7), 
+    0 0 50px rgba(139, 92, 246, 0.15), 
+    inset 0 1px 2px rgba(255, 255, 255, 0.15);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-card-glow {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.12;
+  z-index: 0;
+  pointer-events: none;
+}
+.auth-card-glow.glow-1 {
+  background: var(--color-violet);
+  top: -80px;
+  left: -80px;
+}
+.auth-card-glow.glow-2 {
+  background: var(--color-fuchsia);
+  bottom: -80px;
+  right: -80px;
+}
+
+.auth-logo, .auth-subtitle, .auth-tabs, .auth-form {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-tabs {
+  display: flex;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  padding: 4px;
+  gap: 6px;
+  margin-bottom: 28px;
+}
+
+.auth-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.auth-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.auth-tab-btn.active {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(217, 70, 239, 0.25) 100%);
+  color: #c084fc;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.2);
+  text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+}
+
+.tab-btn-icon {
+  font-size: 1.05rem;
+}
+
+/* Premium Form Inputs with Icons & Validation States */
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  height: 46px;
+}
+.input-wrapper:focus-within {
+  border-color: var(--color-violet);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25), inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.input-wrapper.has-error {
+  border-color: var(--color-rose) !important;
+  background: rgba(244, 63, 94, 0.02) !important;
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.25) !important;
+}
+.input-wrapper .input-icon {
+  padding-left: 14px;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.input-wrapper .form-input {
+  border: none !important;
+  background: transparent !important;
+  padding-left: 10px !important;
+  box-shadow: none !important;
+  width: 100%;
+  height: 100%;
+}
+
+.field-error-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-rose);
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: 6px;
+  text-shadow: 0 0 6px rgba(244, 63, 94, 0.2);
+}
+
+.error-msg-icon {
+  font-size: 0.9rem;
+}
+
+/* slide-fade transition styles */
+.slide-fade-enter-active {
+  transition: all 0.25s ease-out;
+}
+.slide-fade-leave-active {
+  transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1);
+}
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateY(-6px);
+  opacity: 0;
+}
+
+
 /* Auth Overlay */
 .auth-overlay {
   position: fixed;
@@ -3262,5 +4934,68 @@ const fillExample = (url) => {
 
 .settings-page-content {
   margin-top: 20px;
+}
+
+/* 邮箱验证码发送按钮与图形验证码样式 */
+.send-code-btn {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--color-violet);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 110px;
+  flex-shrink: 0;
+}
+.send-code-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: var(--color-violet);
+  color: var(--text-primary);
+}
+.send-code-btn:disabled {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  cursor: not-allowed;
+}
+
+/* 视频话题与标签展示高亮样式 */
+.copy-tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px dashed var(--border-color);
+  padding-bottom: 12px;
+}
+.copy-tags-container:only-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.copy-highlight-tag {
+  background: rgba(217, 70, 239, 0.12);
+  color: #d946ef;
+  border: 1px solid rgba(217, 70, 239, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(217, 70, 239, 0.3);
+  display: inline-block;
+}
+.copy-text-empty {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 20px 0;
+  margin: 0;
 }
 </style>

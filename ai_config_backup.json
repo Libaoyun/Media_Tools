@@ -1,0 +1,12 @@
+{
+  "doubaoApiKey": "",
+  "doubaoEndpointId": "",
+  "enableDoubao": false,
+  "asrApiKey": "sk-zxvocsyeqoligfhfnkabtdblpfhvnrpznrfofxgvgvubpkxp",
+  "asrEndpoint": "https://api.siliconflow.cn/v1",
+  "asrModel": "FunAudioLLM/SenseVoiceSmall",
+  "enableAsr": true,
+  "summaryProvider": "siliconflow",
+  "siliconflowLlApiKey": "",
+  "siliconflowLlModel": "Qwen/Qwen2.5-7B-Instruct"
+}

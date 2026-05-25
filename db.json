@@ -6,7 +6,10 @@
       "role": "admin",
       "nickname": "系统管理员",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
-      "usage": {}
+      "usage": {
+        "2026-05-25": 2
+      },
+      "bio": ""
     },
     {
       "username": "mediaSuper",
@@ -14,7 +17,20 @@
       "role": "super",
       "nickname": "超级用户",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=super",
-      "usage": {}
+      "usage": {},
+      "bio": ""
+    },
+    {
+      "username": "3294935940@qq.com",
+      "email": "3294935940@qq.com",
+      "password": "user01",
+      "role": "user",
+      "nickname": "user01",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=3294935940%40qq.com",
+      "usage": {
+        "2026-05-25": 5
+      },
+      "bio": ""
     }
   ],
   "logs": [
@@ -45,6 +61,139 @@
       "role": "admin",
       "action": "提取文案与AI总结",
       "targetUrl": "https://v.douyin.com/JRkWp2Os5IM/"
+    },
+    {
+      "timestamp": "2026-05-25T13:25:03.152Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/yBCQ2AGNNS0/"
+    },
+    {
+      "timestamp": "2026-05-25T13:30:29.734Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T13:30:29.762Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T13:31:45.508Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "提取文案与AI总结",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T13:40:38.761Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T13:40:45.644Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T13:40:56.041Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/sqAXAezMid8/"
+    },
+    {
+      "timestamp": "2026-05-25T14:32:42.233Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/goZoDhgn8BQ/"
+    },
+    {
+      "timestamp": "2026-05-25T14:32:42.254Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/goZoDhgn8BQ/"
+    },
+    {
+      "timestamp": "2026-05-25T14:33:11.681Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "提取文案与AI总结",
+      "targetUrl": "https://v.douyin.com/goZoDhgn8BQ/"
+    },
+    {
+      "timestamp": "2026-05-25T14:34:24.674Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:34:24.687Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:34:33.263Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "提取文案与AI总结",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:13.433Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:13.443Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:18.614Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:18.622Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:23.420Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "解析并提取视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-25T14:35:23.433Z",
+      "username": "3294935940@qq.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
     }
   ],
   "sessions": {
@@ -59,6 +208,30 @@
     "token_uv61hilaka8mpjv74kn": {
       "username": "mediaAdmin",
       "expireAt": 1779805226471
+    },
+    "token_dazvymeherkmpl8u9fj": {
+      "username": "mediaAdmin",
+      "expireAt": 1779888607039
+    },
+    "token_2ypafwxwna6mplagmcs": {
+      "username": "mediaAdmin",
+      "expireAt": 1779891329836
+    },
+    "token_vyt3hajotmhmplapm0q": {
+      "username": "3294935940@qq.com",
+      "expireAt": 1779891749306
+    },
+    "token_79zcha2nhqymplb7bua": {
+      "username": "mediaAdmin",
+      "expireAt": 1779892575922
     }
+  },
+  "smtp": {
+    "host": "smtp.163.com",
+    "port": 465,
+    "secure": true,
+    "user": "mp772516460@163.com",
+    "pass": "FJvK26fDemTGn9N7",
+    "senderName": "VidFetch 验证中心（Clint Lee）"
   }
 }

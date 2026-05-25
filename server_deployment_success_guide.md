@@ -67,7 +67,7 @@ npm config set registry https://registry.npmmirror.com
 npm install
 npm run build
 ```
-*打包完成后，会在 `frontend/` 下自动生成 `dist/` 文件夹。*
+打包完成后，会在 `frontend/` 下自动生成 `dist/` 文件夹。
 
 ---
 
@@ -100,7 +100,7 @@ PUPPETEER_DOWNLOAD_BASE_URL=https://cdn.npmmirror.com/binaries/chrome-for-testin
 ```bash
 sudo nano /etc/nginx/conf.d/vidfetch.conf
 ```
-将以下内容直接粘贴进去（确保文件开头是 `server`，末尾是 `}`，**不要**包含任何 ``` 标记）：
+将以下内容直接粘贴进去（确保文件开头是 `server`，末尾是 `}`）：
 ```nginx
 server {
     listen 90;
@@ -127,9 +127,9 @@ server {
         proxy_cache_bypass $http_upgrade;
         
         # 延长超时阈值，防止 Puppeteer 解析超慢视频时触发 Nginx 504 报错
-        proxy_connect_timeout 60s;
-        proxy_read_timeout 60s;
-        proxy_send_timeout 60s;
+        proxy_connect_timeout 90s;
+        proxy_read_timeout 90s;
+        proxy_send_timeout 90s;
     }
 }
 ```
@@ -167,18 +167,13 @@ pm2 save
 ### 💡 常用维护指令：
 * 查看状态：`pm2 list`
 * 查看日志：`pm2 logs vidfetch`
-* 重举/重启服务：`pm2 restart vidfetch`
+* 重启服务：`pm2 restart vidfetch`
 
 ---
 
-## 🛡️ 第六步：开放阿里云安全组
+## 🛡️ 第六步：开放云服务器入方向端口规则
 
-1. 登录 **阿里云控制台** ➡️ **云服务器 ECS**。
-2. 找到你的服务器实例，点击 **安全组** ➡️ **配置规则**。
-3. 在**入方向**添加一条规则：
-   * **协议类型**：`自定义 TCP`
-   * **端口范围**：`90`
-   * **授权对象**：`0.0.0.0/0`
-4. 保存规则。
+1. 登录云服务器控制台 ➡️ **网络安全组** ➡️ **配置规则**。
+2. 添加一条规则：放行端口 `90`，协议类型选 `TCP`，授权对象为 `0.0.0.0/0`。
 
-现在，大功告成！直接在浏览器访问 **`http://你的公网IP:90`** 即可完美体验无水印、超清画质的视频嗅探与下载服务！
+现在，直接在浏览器中访问 **`http://你的公网IP:90`**，即可体验功能完善的企业级 VidFetch 系统！
