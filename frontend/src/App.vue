@@ -135,6 +135,31 @@ const changePwErrors = ref({
   captcha: ''
 })
 
+const isEditingProfile = ref(false)
+
+// 自定义 confirm 模态框状态
+const showConfirmModal = ref(false)
+const confirmMessage = ref('')
+let confirmResolve = null
+
+const triggerConfirm = (message) => {
+  confirmMessage.value = message
+  showConfirmModal.value = true
+  return new Promise((resolve) => {
+    confirmResolve = resolve
+  })
+}
+
+const handleConfirmYes = () => {
+  showConfirmModal.value = false
+  if (confirmResolve) confirmResolve(true)
+}
+
+const handleConfirmNo = () => {
+  showConfirmModal.value = false
+  if (confirmResolve) confirmResolve(false)
+}
+
 const openChangePasswordModal = () => {
   changePwOld.value = ''
   changePwNew.value = ''
@@ -865,6 +890,7 @@ const checkAuthSession = async () => {
 // 开启编辑个人资料
 const openEditProfile = () => {
   if (!currentUser.value) return
+  isEditingProfile.value = false
   editNickname.value = currentUser.value.nickname || ''
   editBio.value = currentUser.value.bio || ''
   editPassword.value = ''
@@ -906,7 +932,7 @@ const handleProfileUpdate = async () => {
       currentUser.value.nickname = data.user.nickname
       currentUser.value.avatar = data.user.avatar
       currentUser.value.bio = data.user.bio
-      currentPage.value = 'main'
+      isEditingProfile.value = false
       showToast('个人资料更新成功！', 'success')
     } else {
       showToast(data.message || '更新失败！', 'error')
@@ -915,6 +941,161 @@ const handleProfileUpdate = async () => {
     showToast('更新失败，网络接口错误！', 'error')
   }
 }
+
+// 权益与套餐页面相关逻辑
+const userLogsForChart = ref([])
+const hoveredPoint = ref(null)
+
+const fetchUserLogsForChart = async () => {
+  try {
+    const res = await fetchWithAuth(`${ENGINE_API_URL}/api/user/logs`)
+    const data = await res.json()
+    if (res.ok && data.success) {
+      userLogsForChart.value = data.logs || []
+    }
+  } catch (e) {
+    console.error('获取用户日志失败:', e)
+  }
+}
+
+const openBenefits = () => {
+  currentPage.value = 'benefits'
+  showProfileDropdown.value = false
+  hoveredPoint.value = null
+  fetchUserLogsForChart()
+}
+
+const upgradePlan = (plan) => {
+  if (plan === 'pro') {
+    showToast('敬请期待！', 'info')
+  } else {
+    showToast('企业版服务通道敬请期待！', 'info')
+  }
+}
+
+// 从真实日志计算 30 天的使用数据
+const usageHistory = computed(() => {
+  const stats = []
+  const now = new Date()
+  
+  // 建立以本地日期格式 YYYY-MM-DD 为 Key 的映射表
+  const logsByDate = {}
+  userLogsForChart.value.forEach(log => {
+    if (!log.timestamp) return
+    const d = new Date(log.timestamp)
+    
+    // 转换为本地 YYYY-MM-DD
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
+    
+    if (!logsByDate[dateStr]) {
+      logsByDate[dateStr] = []
+    }
+    logsByDate[dateStr].push(log)
+  })
+
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(now.getDate() - i)
+    
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
+    
+    // 折线图 X 轴的简短展示格式
+    const shortDate = `${d.getMonth() + 1}/${d.getDate()}`
+    const dayLogs = logsByDate[dateStr] || []
+    
+    // 按操作动作进行分组统计
+    const actionGroups = {}
+    dayLogs.forEach(log => {
+      const act = log.action || '未知操作'
+      actionGroups[act] = (actionGroups[act] || 0) + 1
+    })
+    
+    const details = Object.entries(actionGroups)
+      .map(([act, cnt]) => `${act} ${cnt}次`)
+      .join(', ')
+
+    stats.push({
+      dateStr,
+      shortDate,
+      count: dayLogs.length,
+      details: details || '无操作记录'
+    })
+  }
+  return stats
+})
+
+const maxUsageValue = computed(() => {
+  if (usageHistory.value.length === 0) return 10
+  const maxVal = Math.max(...usageHistory.value.map(h => h.count))
+  return maxVal < 5 ? 5 : maxVal
+})
+
+const chartPoints = computed(() => {
+  const points = []
+  const totalPoints = usageHistory.value.length
+  if (totalPoints === 0) return []
+  
+  const svgW = 500
+  const svgH = 200
+  const padL = 40
+  const padR = 20
+  const padT = 20
+  const padB = 30
+  
+  const w = svgW - padL - padR
+  const h = svgH - padT - padB
+  const maxVal = maxUsageValue.value
+  
+  usageHistory.value.forEach((item, index) => {
+    const x = padL + index * (w / (totalPoints - 1))
+    const y = padT + h - (item.count / maxVal) * h
+    
+    const pctX = (x / svgW) * 100
+    const pctY = (y / svgH) * 100
+
+    points.push({ 
+      x, 
+      y, 
+      pctX, 
+      pctY,
+      dateStr: item.dateStr, 
+      shortDate: item.shortDate, 
+      count: item.count,
+      details: item.details
+    })
+  })
+  return points
+})
+
+const chartLinePath = computed(() => {
+  if (chartPoints.value.length === 0) return ''
+  return 'M ' + chartPoints.value.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L ')
+})
+
+const chartAreaPath = computed(() => {
+  if (chartPoints.value.length === 0) return ''
+  const first = chartPoints.value[0]
+  const last = chartPoints.value[chartPoints.value.length - 1]
+  const path = 'M ' + chartPoints.value.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L ')
+  return `${path} L ${last.x.toFixed(1)},170 L ${first.x.toFixed(1)},170 Z`
+})
+
+const chartDots = computed(() => {
+  const pts = chartPoints.value
+  if (pts.length === 0) return []
+  const indexes = [0, 6, 12, 18, 24, 29]
+  return indexes.map(idx => pts[idx]).filter(Boolean)
+})
+
+const chartXLabels = computed(() => {
+  return chartDots.value.map(pt => pt.shortDate)
+})
 
 // 获取系统用户列表 (Admin 权限)
 const fetchAdminUsers = async () => {
@@ -990,7 +1171,8 @@ const handleCreateUser = async () => {
 
 // 管理员删除账号
 const handleDeleteUser = async (username) => {
-  if (!confirm(`确认要永久删除账号 "${username}" 吗？此操作不可逆！`)) {
+  const confirmed = await triggerConfirm(`确认要永久删除账号 "${username}" 吗？此操作不可逆！`)
+  if (!confirmed) {
     return
   }
   try {
@@ -1260,7 +1442,8 @@ const handleBackupSettings = async () => {
 }
 
 const handleRestoreSettings = async () => {
-  if (!confirm('确认要从备份文件恢复所有 AI 配置吗？这将会覆盖您当前的所有配置！')) {
+  const confirmed = await triggerConfirm('确认要从备份文件恢复所有 AI 配置吗？这将会覆盖您当前的所有配置！')
+  if (!confirmed) {
     return
   }
   try {
@@ -1862,6 +2045,36 @@ const fillExample = (url) => {
   </Transition>
 
 
+  <!-- Custom Confirm Modal -->
+  <Transition name="toast-fade">
+    <div v-if="showConfirmModal" class="settings-overlay" style="z-index: 9999;" @click.self="handleConfirmNo">
+      <div class="settings-modal" style="max-width: 400px; padding: 24px; border-radius: 16px; background: linear-gradient(135deg, rgba(16, 18, 35, 0.95) 0%, rgba(10, 11, 22, 0.98) 100%); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);">
+        <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-primary); text-align: left; line-height: 1.5; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px;">
+          <span style="font-size: 1.5rem; line-height: 1; color: var(--color-violet);">❓</span>
+          <span>{{ confirmMessage }}</span>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button 
+            style="padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); color: var(--text-muted); background: rgba(255, 255, 255, 0.02); font-weight: 600; cursor: pointer; transition: all 0.2s;"
+            onmouseover="this.style.background='rgba(255, 255, 255, 0.08)';"
+            onmouseout="this.style.background='rgba(255, 255, 255, 0.02)';"
+            @click="handleConfirmNo"
+          >
+            取消
+          </button>
+          <button 
+            style="padding: 8px 18px; border-radius: 8px; border: none; color: white; background: var(--color-violet); font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);"
+            onmouseover="this.style.opacity='0.9';"
+            onmouseout="this.style.opacity='1';"
+            @click="handleConfirmYes"
+          >
+            确认
+          </button>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
   <!-- Settings Password Verification Modal (Security gate modal overlay, remains as modal) -->
   <Transition name="toast-fade">
     <div v-if="showPasswordModal" class="settings-overlay" @click.self="showPasswordModal = false">
@@ -2236,7 +2449,7 @@ const fillExample = (url) => {
         <img :src="currentUser.avatar" class="nav-avatar" alt="Avatar" />
         <span class="nav-nickname">{{ currentUser.nickname || currentUser.username }}</span>
         <span class="nav-role-badge" :class="currentUser.role">
-          {{ currentUser.role === 'admin' ? '管理员' : currentUser.role === 'super' ? '超级用户' : '普通用户' }}
+          {{ currentUser.role === 'admin' ? '管理员' : currentUser.role === 'super' ? '超级用户' : currentUser.role === 'pro' ? 'Pro用户' : '普通用户' }}
         </span>
         <svg class="dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         
@@ -2249,7 +2462,10 @@ const fillExample = (url) => {
             </div>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" @click="openEditProfile">
-              👤 编辑个人信息
+              👤 个人信息
+            </button>
+            <button class="dropdown-item" @click="openBenefits">
+              💎 查看权益
             </button>
             <button class="dropdown-item" v-if="currentUser.role === 'admin'" @click="openAdminDashboard">
               🖥️ 账号与日志管理
@@ -2383,24 +2599,15 @@ const fillExample = (url) => {
 
         <button class="settings-save-btn" style="margin-top: 20px;" @click="saveSettings">保存配置并生效</button>
         
-        <div style="display: flex; gap: 12px; margin-top: 24px; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 20px;" v-if="currentUser && (currentUser.role === 'admin' || currentUser.role === 'super')">
+        <div style="display: flex; gap: 12px; margin-top: 24px; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 20px;" v-if="currentUser && currentUser.role === 'admin'">
           <button 
             class="ex-btn" 
-            style="flex: 1; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(139, 92, 246, 0.3); color: #c084fc; background: rgba(139, 92, 246, 0.05); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
-            onmouseover="this.style.background='rgba(139, 92, 246, 0.15)';"
-            onmouseout="this.style.background='rgba(139, 92, 246, 0.05)';"
-            @click="handleBackupSettings"
-          >
-            💾 备份当前配置至服务器
-          </button>
-          <button 
-            class="ex-btn" 
-            style="flex: 1; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(244, 63, 94, 0.3); color: #f43f5e; background: rgba(244, 63, 94, 0.05); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
+            style="flex: 1; max-width: 200px; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(244, 63, 94, 0.3); color: #f43f5e; background: rgba(244, 63, 94, 0.05); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
             onmouseover="this.style.background='rgba(244, 63, 94, 0.15)';"
             onmouseout="this.style.background='rgba(244, 63, 94, 0.05)';"
             @click="handleRestoreSettings"
           >
-            🔄 从备份文件重置恢复配置
+            🔄 重置系统配置
           </button>
         </div>
       </div>
@@ -2413,10 +2620,61 @@ const fillExample = (url) => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="back-icon"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
           返回主页
         </button>
-        <h2 class="page-title">👤 编辑个人账户信息</h2>
+        <h2 class="page-title">{{ isEditingProfile ? '👤 编辑个人信息' : '👤 个人信息' }}</h2>
       </div>
       
-      <div class="settings-page-content animate-fade-in" style="text-align: left; margin-top: 20px;">
+      <!-- Read-only View Mode -->
+      <div v-if="!isEditingProfile" class="settings-page-content animate-fade-in" style="text-align: left; margin-top: 20px;">
+        <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 30px; background: rgba(255,255,255,0.02); padding: 20px; border-radius: 16px; border: 1px solid var(--border-color);">
+          <img :src="currentUser?.avatar" style="width: 72px; height: 72px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 2px solid var(--color-violet);" alt="用户头像" />
+          <div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+              {{ currentUser?.nickname }}
+              <span class="role-badge" :class="currentUser?.role">
+                {{ currentUser?.role === 'admin' ? '管理员' : currentUser?.role === 'super' ? '超级用户' : currentUser?.role === 'pro' ? 'Pro用户' : '普通用户' }}
+              </span>
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text-muted); margin-top: 4px;">用户名: {{ currentUser?.username }}</div>
+          </div>
+        </div>
+
+        <div class="profile-view-list" style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">注册邮箱 (脱敏保护)</div>
+            <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-primary);">{{ maskedEmail }}</div>
+          </div>
+          
+          <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">个人简介</div>
+            <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-primary); line-height: 1.5; min-height: 24px;">
+              {{ currentUser?.bio || '这家伙很懒，什么都没有留下。' }}
+            </div>
+          </div>
+          
+          <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">头像随机种子</div>
+            <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-primary); font-family: monospace;">
+              {{ editAvatarSeed }}
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 16px; margin-top: 35px; align-items: center;">
+          <button 
+            class="ex-btn" 
+            style="width: 150px; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(139, 92, 246, 0.4); color: #c084fc; background: rgba(139, 92, 246, 0.08); font-weight: 700; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
+            onmouseover="this.style.background='rgba(139, 92, 246, 0.18)';"
+            onmouseout="this.style.background='rgba(139, 92, 246, 0.08)';"
+            @click="isEditingProfile = true"
+          >
+            ✍️ 编辑个人资料
+          </button>
+          <button class="change-pw-trigger-btn" style="height: 42px; border-radius: 10px;" @click="openChangePasswordModal">🔐 修改登录密码</button>
+        </div>
+      </div>
+
+      <!-- Edit Mode -->
+      <div v-else class="settings-page-content animate-fade-in" style="text-align: left; margin-top: 20px;">
         <div class="form-group">
           <label class="form-label">注册账号 (不可编辑)</label>
           <input type="text" :value="maskedEmail" disabled class="form-input" style="opacity: 0.6; cursor: not-allowed; background: rgba(255,255,255,0.02);" />
@@ -2441,8 +2699,251 @@ const fillExample = (url) => {
         </div>
         
         <div style="display: flex; gap: 16px; margin-top: 30px; align-items: center;">
-          <button class="settings-save-btn" style="margin-top: 0; flex: 1;" @click="handleProfileUpdate">保存修改</button>
-          <button class="change-pw-trigger-btn" @click="openChangePasswordModal">🔐 修改登录密码</button>
+          <button class="settings-save-btn" style="margin-top: 0; width: 150px;" @click="handleProfileUpdate">保存修改</button>
+          <button 
+            class="ex-btn" 
+            style="width: 100px; height: 42px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid rgba(255, 255, 255, 0.15); color: var(--text-muted); background: rgba(255, 255, 255, 0.02); font-weight: 600; cursor: pointer; border-radius: 10px; transition: all 0.2s;"
+            onmouseover="this.style.background='rgba(255,255,255,0.08)';"
+            onmouseout="this.style.background='rgba(255,255,255,0.02)';"
+            @click="isEditingProfile = false"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ==================== currentPage: benefits ==================== -->
+    <main class="main-card animate-slide-up sub-page" v-else-if="currentPage === 'benefits'">
+      <div class="page-header">
+        <button class="back-btn" @click="currentPage = 'main'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="back-icon"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          返回主页
+        </button>
+        <h2 class="page-title">💎 我的权益与升级套餐</h2>
+      </div>
+
+      <div class="benefits-container animate-fade-in" style="text-align: left; margin-top: 20px;">
+        <!-- Top Summary Cards -->
+        <div class="bento-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+          <!-- Card 1: Role -->
+          <div class="bento-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 18px; border-radius: 14px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted);">当前账号角色</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+              {{ currentUser?.role === 'admin' ? '系统管理员' : currentUser?.role === 'super' ? '超级普通用户' : currentUser?.role === 'pro' ? 'Pro专业用户' : '普通免费用户' }}
+              <span class="role-badge" :class="currentUser?.role">
+                {{ currentUser?.role === 'admin' ? '管理员' : currentUser?.role === 'super' ? '超级用户' : currentUser?.role === 'pro' ? 'Pro用户' : '普通用户' }}
+              </span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+              {{ currentUser?.role === 'user' ? '升级为 Pro 账号可享无限制下载' : '已享受无限制解析权限' }}
+            </div>
+          </div>
+          
+          <!-- Card 2: Quota & Usage -->
+          <div class="bento-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 18px; border-radius: 14px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted);">今日已用解析额度</div>
+            <div style="font-size: 1.4rem; font-weight: 700; margin-top: 8px; color: var(--text-primary);">
+              <span style="color: var(--color-violet);">{{ currentUser?.role === 'user' ? (5 - currentUser?.remaining) : (currentUser?.usage?.[new Date().toISOString().split('T')[0]] || 0) }}</span> 
+              <span style="color: var(--text-muted); font-weight: normal; font-size: 1rem;"> / </span>
+              <span>{{ currentUser?.role === 'admin' || currentUser?.role === 'super' || currentUser?.role === 'pro' ? '∞ (无限制)' : '5 次' }}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+              {{ currentUser?.role === 'user' ? `今天剩余可用 ${currentUser?.remaining} 次` : '无限量高速提取专线可用' }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Package Upgrade Grid (Moved Above Chart) -->
+        <h3 style="font-size: 1.25rem; font-weight: 800; margin-top: 10px; margin-bottom: 20px; color: var(--text-primary); text-align: center;">⚡ 套餐升级与对比</h3>
+        
+        <div class="benefits-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 35px;">
+          <!-- 1. Free Plan -->
+          <div class="pkg-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="font-size: 1.2rem; font-weight: 700; color: var(--text-secondary);">免费基础版</div>
+              <div style="margin-top: 15px; display: flex; align-items: baseline;">
+                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥0</span>
+                <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 永久</span>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">适合轻度自媒体创作者日常临时解析下载。</div>
+              <div style="margin-top: 24px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 20px;">
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; font-size: 0.9rem;">
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>每日限制解析提取 5 次</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>火山引擎 ASR 语音识别 (限制 30MB)</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>主流自媒体短视频平台无水印解析</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); opacity: 0.5;">
+                    <span style="color: #f43f5e;">✗</span> <span>不支持高并发快速下载通道</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); opacity: 0.5;">
+                    <span style="color: #f43f5e;">✗</span> <span>无企业级管理员审计与系统配置</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            <button 
+              disabled 
+              style="margin-top: 30px; width: 100%; height: 42px; background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid rgba(255,255,255,0.08); font-weight: 700; border-radius: 12px; cursor: not-allowed;"
+            >
+              当前套餐
+            </button>
+          </div>
+
+          <!-- 2. Pro Plan -->
+          <div class="pkg-card pro-card" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.05) 0%, rgba(6, 182, 212, 0.05) 100%); border: 2px solid #8b5cf6; padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between; position: relative; box-shadow: 0 10px 30px rgba(139, 92, 246, 0.15);">
+            <div style="position: absolute; top: -12px; right: 20px; background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">推荐</div>
+            <div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #a78bfa; display: flex; align-items: center; gap: 6px;">
+                💎 Pro 专业版
+              </div>
+              <div style="margin-top: 15px; display: flex; align-items: baseline;">
+                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥99</span>
+                <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 月</span>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">适合高频自媒体创作者、剪辑团队、文案提炼研究者。</div>
+              <div style="margin-top: 24px; border-top: 1px dashed rgba(139, 92, 246, 0.2); padding-top: 20px;">
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; font-size: 0.9rem;">
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #a78bfa; font-weight: 900;">★</span> <span><strong>无任何解析次数限制 (无限次)</strong></span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>极速并发下载与提取 (满速不限流)</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>超长 ASR 语音识别专线 (最大支持 200MB 视频)</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>尊享 DeepSeek/ChatGPT 核心总结大模型通道</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>享有个人尊贵权益 Pro 星环标识</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            <button 
+              @click="upgradePlan('pro')"
+              style="margin-top: 30px; width: 100%; height: 42px; background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: white; border: none; font-weight: 700; border-radius: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);"
+              onmouseover="this.style.opacity='0.9'; this.style.transform='translateY(-1px)';"
+              onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)';"
+            >
+              {{ currentUser?.role === 'pro' ? '已是 Pro 版' : '立即升级 Pro 套餐' }}
+            </button>
+          </div>
+
+          <!-- 3. Enterprise Plan -->
+          <div class="pkg-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8;">企业超级版</div>
+              <div style="margin-top: 15px; display: flex; align-items: baseline;">
+                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥499</span>
+                <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 月</span>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">适合中大型企业、协作媒体机构以及需要独立管理后台的组织。</div>
+              <div style="margin-top: 24px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 20px;">
+                <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; font-size: 0.9rem;">
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #38bdf8;">✓</span> <span><strong>享有所有 Pro 尊享级权益</strong></span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>内置多用户创建与配额管控管理</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>企业级操作日志全面级联审计与筛选</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>防灾防误操作 - 一键云端备份恢复系统配置</span>
+                  </li>
+                  <li style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #10b981;">✓</span> <span>自定义全局发信 SMTP 邮箱验证服务器</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            <button 
+              @click="upgradePlan('enterprise')"
+              style="margin-top: 30px; width: 100%; height: 42px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; border-radius: 12px; cursor: pointer; transition: all 0.2s;"
+              onmouseover="this.style.background='rgba(56, 189, 248, 0.22)'; this.style.transform='translateY(-1px)';"
+              onmouseout="this.style.background='rgba(56, 189, 248, 0.12)'; this.style.transform='translateY(0)';"
+            >
+              申请企业合作
+            </button>
+          </div>
+        </div>
+
+        <!-- Visual Analytics Usage Chart (Moved Below Packages) -->
+        <div class="benefits-chart-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 20px; border-radius: 16px; margin-bottom: 30px;">
+          <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; color: var(--text-primary);">
+            <span>📈 近 30 天提取频率趋势 (每日解析次数)</span>
+          </h3>
+          
+          <div class="chart-container" style="position: relative; width: 100%;">
+            <!-- SVG Line Chart -->
+            <svg viewBox="0 0 500 200" class="svg-chart" style="width: 100%; height: auto; display: block; overflow: visible;">
+              <!-- Gradients -->
+              <defs>
+                <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(139, 92, 246, 0.4)"/>
+                  <stop offset="100%" stop-color="rgba(139, 92, 246, 0)"/>
+                </linearGradient>
+                <linearGradient id="line-grad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#8b5cf6"/>
+                  <stop offset="100%" stop-color="#06b6d4"/>
+                </linearGradient>
+              </defs>
+              
+              <!-- Grid lines -->
+              <line x1="40" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.04)" stroke-dasharray="3,3" />
+              <line x1="40" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.04)" stroke-dasharray="3,3" />
+              <line x1="40" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.04)" stroke-dasharray="3,3" />
+              <line x1="40" y1="170" x2="480" y2="170" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+
+              <!-- Y axis labels -->
+              <text x="12" y="24" fill="rgba(255,255,255,0.3)" font-size="10" font-weight="600" text-anchor="start">{{ maxUsageValue }}</text>
+              <text x="12" y="99" fill="rgba(255,255,255,0.3)" font-size="10" font-weight="600" text-anchor="start">{{ Math.round(maxUsageValue / 2) }}</text>
+              <text x="12" y="174" fill="rgba(255,255,255,0.3)" font-size="10" font-weight="600" text-anchor="start">0</text>
+
+              <!-- SVG Path for Area -->
+              <path :d="chartAreaPath" fill="url(#chart-grad)" />
+              <!-- SVG Path for Line -->
+              <path :d="chartLinePath" fill="none" stroke="url(#line-grad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+              
+              <!-- Dots for all data points (interactive on hover) -->
+              <g v-for="(pt, idx) in chartPoints" :key="idx"
+                 @mouseenter="hoveredPoint = pt"
+                 @mouseleave="hoveredPoint = null"
+                 style="cursor: pointer;"
+              >
+                <!-- Invisible larger hit area for easier hover -->
+                <circle :cx="pt.x" :cy="pt.y" r="10" fill="transparent" />
+                <!-- Visible circle -->
+                <circle :cx="pt.x" :cy="pt.y" :r="hoveredPoint?.dateStr === pt.dateStr ? 6 : 4" :fill="hoveredPoint?.dateStr === pt.dateStr ? '#22d3ee' : '#06b6d4'" :stroke="hoveredPoint?.dateStr === pt.dateStr ? '#fff' : '#0f1123'" stroke-width="2" />
+              </g>
+            </svg>
+            
+            <!-- X-axis Labels below SVG -->
+            <div class="chart-x-labels" style="display: flex; justify-content: space-between; margin-left: 40px; margin-right: 20px; margin-top: 8px;">
+              <span v-for="lbl in chartXLabels" :key="lbl" style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">{{ lbl }}</span>
+            </div>
+
+            <!-- Hover Tooltip -->
+            <div v-if="hoveredPoint" class="chart-tooltip" :style="{ left: hoveredPoint.pctX + '%', top: (hoveredPoint.pctY - 12) + '%' }">
+              <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 2px;">{{ hoveredPoint.dateStr }}</div>
+              <div style="font-size: 0.8rem; color: #c084fc; font-weight: 700;">总解析次数: {{ hoveredPoint.count }} 次</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; line-height: 1.3; white-space: normal; word-break: break-all;">
+                {{ hoveredPoint.details }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -2492,7 +2993,7 @@ const fillExample = (url) => {
             <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; width: 120px; flex-shrink: 0;">
               <img :src="inspectedUser.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(inspectedUser.username)}`" style="width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.05); border: 2px solid var(--border-color);" alt="头像" />
               <span class="role-badge" :class="inspectedUser.role">
-                {{ inspectedUser.role === 'admin' ? '管理员' : inspectedUser.role === 'super' ? '超级用户' : '普通用户' }}
+                {{ inspectedUser.role === 'admin' ? '管理员' : inspectedUser.role === 'super' ? '超级用户' : inspectedUser.role === 'pro' ? 'Pro用户' : '普通用户' }}
               </span>
             </div>
             
@@ -2516,7 +3017,7 @@ const fillExample = (url) => {
                 <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">今日已提取次数</label>
                 <div style="color: var(--text-primary); font-weight: 700; font-size: 1.1rem;">
                   {{ inspectedUser.usage[new Date().toISOString().split('T')[0]] || 0 }} 
-                  <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-secondary);"> / {{ inspectedUser.role === 'admin' || inspectedUser.role === 'super' ? '∞' : '5' }}</span>
+                  <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-secondary);"> / {{ inspectedUser.role === 'admin' || inspectedUser.role === 'super' || inspectedUser.role === 'pro' ? '∞' : '5' }}</span>
                 </div>
               </div>
             </div>
@@ -2575,6 +3076,7 @@ const fillExample = (url) => {
                 <label class="form-label">角色类型</label>
                 <select v-model="createRole" class="form-input">
                   <option value="user" style="background:#0f1123; color:#f1f5f9;">普通用户 (日限5次)</option>
+                  <option value="pro" style="background:#0f1123; color:#f1f5f9;">Pro用户 (无限制，不限个数)</option>
                   <option value="super" style="background:#0f1123; color:#f1f5f9;">超级用户 (无限制，限1个)</option>
                   <option value="admin" style="background:#0f1123; color:#f1f5f9;">系统管理员 (无限制，限1个)</option>
                 </select>
@@ -2606,12 +3108,12 @@ const fillExample = (url) => {
                   <td>{{ user.username }}</td>
                   <td>
                     <span class="role-badge" :class="user.role">
-                      {{ user.role === 'admin' ? '管理员' : user.role === 'super' ? '超级用户' : '普通用户' }}
+                      {{ user.role === 'admin' ? '管理员' : user.role === 'super' ? '超级用户' : user.role === 'pro' ? 'Pro用户' : '普通用户' }}
                     </span>
                   </td>
                   <td>
                     <span style="font-weight: 700; color: var(--text-primary);">{{ user.usage[new Date().toISOString().split('T')[0]] || 0 }}</span> / 
-                    <span>{{ user.role === 'admin' || user.role === 'super' ? '∞' : '5' }}</span>
+                    <span>{{ user.role === 'admin' || user.role === 'super' || user.role === 'pro' ? '∞' : '5' }}</span>
                   </td>
                   <td>
                     <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-start;">
@@ -4523,6 +5025,12 @@ const fillExample = (url) => {
   border: 1px solid rgba(217, 70, 239, 0.2);
 }
 
+.nav-role-badge.pro {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--color-violet);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
 .nav-role-badge.user {
   background: rgba(16, 185, 129, 0.15);
   color: var(--color-emerald);
@@ -4801,6 +5309,12 @@ const fillExample = (url) => {
   border: 1px solid rgba(217, 70, 239, 0.2);
 }
 
+.role-badge.pro {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--color-violet);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
 .role-badge.user {
   background: rgba(16, 185, 129, 0.15);
   color: var(--color-emerald);
@@ -4826,9 +5340,54 @@ const fillExample = (url) => {
   color: var(--color-fuchsia);
 }
 
+.role-badge-mini.pro {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--color-violet);
+}
+
 .role-badge-mini.user {
   background: rgba(16, 185, 129, 0.1);
   color: var(--color-emerald);
+}
+
+/* Benefits and Packages Layout */
+.benefits-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.pkg-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pkg-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+}
+.pkg-card.pro-card:hover {
+  border-color: #a78bfa !important;
+  box-shadow: 0 15px 35px rgba(139, 92, 246, 0.25);
+}
+.svg-chart {
+  background: rgba(10, 11, 22, 0.4);
+  border-radius: 12px;
+  padding: 10px;
+}
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(15, 17, 35, 0.95);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 10px 14px;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(139, 92, 246, 0.15);
+  pointer-events: none;
+  z-index: 100;
+  min-width: 160px;
+  max-width: 240px;
+  text-align: left;
+  backdrop-filter: blur(10px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .delete-user-btn {

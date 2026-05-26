@@ -151,7 +151,7 @@ function checkAndIncrementLimit(user, increment = false) {
     if (!dbUser.usage) dbUser.usage = {};
     const count = dbUser.usage[today] || 0;
 
-    if (dbUser.role === 'admin' || dbUser.role === 'super') {
+    if (dbUser.role === 'admin' || dbUser.role === 'super' || dbUser.role === 'pro') {
         if (increment) {
             dbUser.usage[today] = count + 1;
             writeDb(db);
@@ -546,6 +546,16 @@ app.post('/api/auth/profile/change-password', authenticate, (req, res) => {
     res.json({ success: true, message: '密码修改成功，请使用新密码重新登录！' });
 });
 
+// 获取当前用户的操作日志 (用于权益面板的真实图表展示)
+app.get('/api/user/logs', authenticate, (req, res) => {
+    const username = req.user.username;
+    const db = readDb();
+    const userLogs = db.logs.filter(log => log.username.toLowerCase() === username.toLowerCase());
+    // 按时间倒序
+    const sortedLogs = [...userLogs].reverse();
+    res.json({ success: true, logs: sortedLogs });
+});
+
 // ==================== 管理员相关接口 ====================
 
 // 获取所有用户账号 (仅 Admin)
@@ -685,10 +695,10 @@ app.post('/api/admin/smtp-settings', authenticate, (req, res) => {
     res.json({ success: true, message: 'SMTP 邮箱配置保存成功！' });
 });
 
-// 获取 AI 核心配置备份 (限 Admin 和 Super)
+// 获取 AI 核心配置备份 (仅限 Admin)
 app.get('/api/admin/config-backup', authenticate, (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'super') {
-        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅超级用户或系统管理员可行！' });
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
     }
 
     const backupPath = path.join(__dirname, 'ai_config_backup.json');
@@ -705,10 +715,10 @@ app.get('/api/admin/config-backup', authenticate, (req, res) => {
     }
 });
 
-// 保存 AI 核心配置备份 (限 Admin 和 Super)
+// 保存 AI 核心配置备份 (仅限 Admin)
 app.post('/api/admin/config-backup', authenticate, (req, res) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'super') {
-        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅超级用户或系统管理员可行！' });
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: '无权操作：仅系统管理员可行！' });
     }
 
     const backupPath = path.join(__dirname, 'ai_config_backup.json');
