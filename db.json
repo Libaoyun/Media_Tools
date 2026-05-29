@@ -2,18 +2,19 @@
   "users": [
     {
       "username": "mediaAdmin",
-      "password": "adminOther9!",
+      "password": "4bb92dbfdc26ea40ebadc9e4b4908f2502a71125531f53794462a0e9b2cb4889",
       "role": "admin",
       "nickname": "系统管理员",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
       "usage": {
-        "2026-05-25": 2
+        "2026-05-25": 2,
+        "2026-05-29": 13
       },
       "bio": ""
     },
     {
       "username": "mediaSuper",
-      "password": "superOther!",
+      "password": "09d725709c15bd74e877a5e1c4244968c7fd2d832c56dc3c633994e7e9dab28b",
       "role": "super",
       "nickname": "超级用户",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=super",
@@ -23,7 +24,7 @@
     {
       "username": "3294935940@qq.com",
       "email": "3294935940@qq.com",
-      "password": "user01",
+      "password": "aad415a73c4cef1ef94a5c00b2642b571a3e5494536328ad960db61889bd9368",
       "role": "user",
       "nickname": "user01",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=3294935940%40qq.com",
@@ -31,6 +32,15 @@
         "2026-05-25": 5
       },
       "bio": ""
+    },
+    {
+      "username": "mediaPro",
+      "password": "7a624d6ebac69108d548f105885f1f141d619a1f3dba44df55330a7680f6ee95",
+      "role": "pro",
+      "nickname": "PRO用户",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=pro",
+      "bio": "",
+      "usage": {}
     }
   ],
   "logs": [
@@ -194,6 +204,146 @@
       "role": "user",
       "action": "下载物理视频",
       "targetUrl": "https://v.douyin.com/SxzC2Z9N_Kc/"
+    },
+    {
+      "timestamp": "2026-05-29T12:02:25.492Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:02:25.499Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:20.100Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:20.109Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:49.649Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.xiaohongshu.com/explore/64bd3078000000000a01a777"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:49.655Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.xiaohongshu.com/explore/64bd3078000000000a01a777"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:53.145Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-05-29T12:07:53.149Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-05-29T12:13:12.915Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:13:12.921Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T12:13:46.056Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-05-29T12:13:46.062Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-05-29T12:14:17.592Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://aweme.snssdk.com/aweme/v1/play/?video_id=v0d00fg10000d880fq7og65s5lbu48f0&ratio=720p"
+    },
+    {
+      "timestamp": "2026-05-29T12:56:14.134Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.kuaishou.com/f/X1iudmBz7MV62fO"
+    },
+    {
+      "timestamp": "2026-05-29T12:56:14.165Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.kuaishou.com/f/X1iudmBz7MV62fO"
+    },
+    {
+      "timestamp": "2026-05-29T13:01:07.492Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "提取文案与AI总结",
+      "targetUrl": "https://www.kuaishou.com/f/X1iudmBz7MV62fO"
+    },
+    {
+      "timestamp": "2026-05-29T15:11:15.380Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T15:11:15.384Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-05-29T15:11:47.901Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "解析并提取视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-05-29T15:11:47.904Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "下载物理视频",
+      "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
     }
   ],
   "sessions": {
@@ -232,6 +382,30 @@
     "token_mmhylftgrykmpmsxhht": {
       "username": "3294935940@qq.com",
       "expireAt": 1779982815953
+    },
+    "token_1qe1wmafqormpqvgvyq": {
+      "username": "mediaAdmin",
+      "expireAt": 1780228945106
+    },
+    "token_exw5rytshfhmpqvn7c2": {
+      "username": "mediaAdmin",
+      "expireAt": 1780229239778
+    },
+    "token_45mc63xuudbmpqvuria": {
+      "username": "mediaAdmin",
+      "expireAt": 1780229592514
+    },
+    "token_5l2cr0hfz9kmpqx56t4": {
+      "username": "mediaAdmin",
+      "expireAt": 1780231758520
+    },
+    "token_w8jz5fgj59mpr27q8e": {
+      "username": "mediaAdmin",
+      "expireAt": 1780240275086
+    },
+    "token_qztkfc2iqanmpr2rlps": {
+      "username": "3294935940@qq.com",
+      "expireAt": 1780241202352
     }
   },
   "smtp": {

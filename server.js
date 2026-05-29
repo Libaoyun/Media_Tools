@@ -7,12 +7,19 @@ const fs = require('fs');
 const FormData = require('form-data');
 const { pipeline } = require('stream/promises');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors()); // 允许前端页面跨域访问我们自己的服务
 app.use(express.json());
 
-// db.json 数据存储文件定义与初始化
+// SHA-256 密码哈希生成器
+function hashPassword(password) {
+    if (!password) return '';
+    return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// db.json 数据存储 file 定义与初始化
 const DB_FILE = path.join(__dirname, 'db.json');
 
 function initDb() {
@@ -21,7 +28,7 @@ function initDb() {
             users: [
                 {
                     username: 'mediaAdmin',
-                    password: 'adminOther9!', // Preset Admin
+                    password: '4bb92dbfdc26ea40ebadc9e4b4908f2502a71125531f53794462a0e9b2cb4889', // Hashed admin password
                     role: 'admin',
                     nickname: '系统管理员',
                     avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=admin',
@@ -29,10 +36,18 @@ function initDb() {
                 },
                 {
                     username: 'mediaSuper',
-                    password: 'superOther!', // Preset Super User
+                    password: '09d725709c15bd74e877a5e1c4244968c7fd2d832c56dc3c633994e7e9dab28b', // Hashed super user password
                     role: 'super',
                     nickname: '超级用户',
                     avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=super',
+                    usage: {}
+                },
+                {
+                    username: 'mediaPro',
+                    password: '7a624d6ebac69108d548f105885f1f141d619a1f3dba44df55330a7680f6ee95', // Hashed pro user password
+                    role: 'pro',
+                    nickname: 'PRO用户',
+                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=pro',
                     usage: {}
                 }
             ],
@@ -40,11 +55,12 @@ function initDb() {
             sessions: {} // { [token]: { username, expireAt } }
         };
         fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
-        console.log('[数据库] 初始化 db.json 完成，已注入默认管理员与超级用户。');
+        console.log('[数据库] 初始化 db.json 完成，已注入默认管理员、超级用户与Pro用户。');
     }
 }
 
 initDb();
+readDb();
 
 // 邮箱验证码缓存存储：{ [email]: { code, expireAt, type } }
 const emailCodes = {};
@@ -65,7 +81,26 @@ function readDb() {
                     u.bio = '';
                     modified = true;
                 }
+                // 如果密码未经过 SHA-256 哈希加密，则自动对其进行哈希加密
+                if (u.password && !/^[0-9a-f]{64}$/i.test(u.password)) {
+                    u.password = hashPassword(u.password);
+                    modified = true;
+                }
             });
+            // 确保内置的 PRO 用户存在
+            const hasMediaPro = db.users.some(u => u.username === 'mediaPro');
+            if (!hasMediaPro) {
+                db.users.push({
+                    username: 'mediaPro',
+                    password: '7a624d6ebac69108d548f105885f1f141d619a1f3dba44df55330a7680f6ee95', // Hashed proOther!
+                    role: 'pro',
+                    nickname: 'PRO用户',
+                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=pro',
+                    bio: '',
+                    usage: {}
+                });
+                modified = true;
+            }
         }
         if (modified) {
             fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
@@ -346,7 +381,7 @@ app.post('/api/auth/reset-password', (req, res) => {
     }
 
     // 更新密码
-    user.password = newPassword;
+    user.password = hashPassword(newPassword);
 
     // 清除会话使其重新登录
     Object.keys(db.sessions).forEach(token => {
@@ -398,7 +433,7 @@ app.post('/api/auth/register', (req, res) => {
     const newUser = {
         username: email,
         email: email,
-        password: password,
+        password: hashPassword(password),
         role: 'user',
         nickname: (nickname || email.split('@')[0]).trim(),
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(randomSeed)}`,
@@ -425,7 +460,7 @@ app.post('/api/auth/login', (req, res) => {
     const db = readDb();
     const user = db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
 
-    if (!user || user.password !== password) {
+    if (!user || user.password !== hashPassword(password)) {
         return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: '用户名或密码输入错误！' });
     }
 
@@ -497,7 +532,7 @@ app.post('/api/auth/profile/update', authenticate, (req, res) => {
     if (nickname !== undefined) dbUser.nickname = nickname.trim();
     if (avatar !== undefined) dbUser.avatar = avatar;
     if (bio !== undefined) dbUser.bio = (bio || '').trim();
-    if (password !== undefined) dbUser.password = password;
+    if (password !== undefined) dbUser.password = hashPassword(password);
 
     writeDb(db);
 
@@ -528,12 +563,12 @@ app.post('/api/auth/profile/change-password', authenticate, (req, res) => {
         return res.status(404).json({ error: 'NOT_FOUND', message: '用户不存在！' });
     }
 
-    if (dbUser.password !== oldPassword) {
+    if (dbUser.password !== hashPassword(oldPassword)) {
         return res.status(400).json({ error: 'INVALID_PASSWORD', message: '原密码输入错误，请重新输入！' });
     }
 
     // 更新密码
-    dbUser.password = newPassword;
+    dbUser.password = hashPassword(newPassword);
 
     // 清理该用户的所有活跃会话以强制重新登录
     Object.keys(db.sessions).forEach(token => {
@@ -554,6 +589,19 @@ app.get('/api/user/logs', authenticate, (req, res) => {
     // 按时间倒序
     const sortedLogs = [...userLogs].reverse();
     res.json({ success: true, logs: sortedLogs });
+});
+
+// 模拟在线支付升级为 PRO 用户 (开发环境可用)
+app.post('/api/user/simulate-upgrade', authenticate, (req, res) => {
+    const { plan } = req.body;
+    const db = readDb();
+    const dbUser = db.users.find(u => u.username === req.user.username);
+    if (!dbUser) {
+        return res.status(404).json({ error: 'NOT_FOUND', message: '当前用户不存在，升级失败！' });
+    }
+    dbUser.role = 'pro';
+    writeDb(db);
+    res.json({ success: true, message: `模拟付款成功！已成功为您升级为 Pro 专业版账号。` });
 });
 
 // ==================== 管理员相关接口 ====================
@@ -605,7 +653,7 @@ app.post('/api/admin/users/create', authenticate, (req, res) => {
 
     const newUser = {
         username: cleanUsername,
-        password: password,
+        password: hashPassword(password),
         role: role,
         nickname: (nickname || cleanUsername).trim(),
         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
@@ -1053,14 +1101,29 @@ app.post('/api/parse', authenticate, async (req, res) => {
         });
         const page = await browser.newPage();
 
+        // 启用无头浏览器隐藏指纹，防爬虫风控
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            window.chrome = {
+                runtime: {}
+            };
+        });
+
         const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv');
         const isXiaohongshu = url.includes('xiaohongshu.com') || url.includes('xhslink.com');
         const isTikTok = url.includes('tiktok.com');
         const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+        const isKuaishou = url.includes('kuaishou.com') || url.includes('gifshow.com') || url.includes('chenzhongtech.com');
+        const isBaijiahao = url.includes('baijiahao.baidu.com') || url.includes('mbd.baidu.com') || url.includes('haokan.baidu.com');
 
         if (isBilibili) {
-            // 使用 iPad UA，既不会像手机端那样被强制唤起 Bilibili App，又不会像 PC 端那样默认采用音视频分离的 DASH 流，而是直接返回完整的 MP4 直链！
+            // 使用 iPad UA，既不会像手机端那样被强制唤起 Bilibili App，又不会像 PC 端那样默认采用音视频分离 of DASH 流，而是直接返回完整的 MP4 直链！
             await page.setUserAgent('Mozilla/5.0 (iPad; CPU OS 16_6 like Mac Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
+        } else if (isXiaohongshu || isBaijiahao) {
+            // 小红书和百家号使用 PC 桌面 UA，避开移动端强制滑块验证及唤起 App 提示
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         } else if (isYouTube) {
             // YouTube 使用 iPhone UA 并配合禁用 MSE，使其返回 progressive MP4 直链
             await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
@@ -1076,7 +1139,7 @@ app.post('/api/parse', authenticate, async (req, res) => {
                 });
             });
         } else {
-            // 抖音、小红书、TikTok 等其它平台使用手机 UA 触发轻量版/触屏版
+            // 抖音、快手、TikTok 等其它平台使用手机 UA 触发轻量版/触屏版
             await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1');
         }
 
@@ -1204,6 +1267,46 @@ app.post('/api/parse', authenticate, async (req, res) => {
                 } catch (e) { }
             }
 
+            // 5. 拦截小红书 API
+            if (isXiaohongshu && (reqUrl.includes('/api/sns/web/v1/feed') || reqUrl.includes('/api/sns/web/v2/note/feed') || reqUrl.includes('/api/sns/web/v1/detail') || reqUrl.includes('/api/sns/web/v2/note/detail'))) {
+                try {
+                    const json = await response.json();
+                    const card = json?.data?.[0]?.note_card || json?.data?.note_card || json?.data?.items?.[0]?.note_card || json?.data?.note_list?.[0] || json?.data || (json?.data?.noteDetailMap ? json.data.noteDetailMap[Object.keys(json.data.noteDetailMap)[0]] : null);
+                    const detail = card?.note_card || card;
+                    if (detail) {
+                        const videoStream = detail.video?.media?.stream;
+                        if (videoStream) {
+                            const h264List = videoStream.h264 || videoStream.h265 || [];
+                            const playUrl = h264List[0]?.master_url || h264List[0]?.masterUrl;
+                            if (playUrl) {
+                                videoSrc = playUrl;
+                                description = detail.desc || detail.title || description || '';
+                                if (detail.title && detail.desc && !detail.desc.includes(detail.title)) {
+                                    description = `${detail.title}。${detail.desc}`;
+                                }
+                                console.log(`[小红书API拦截] 成功拦截到视频地址: ${videoSrc}`);
+                                if (resolveIntercept) resolveIntercept();
+                            }
+                        }
+                    }
+                } catch (e) { }
+            }
+
+            // 6. 拦截小红书/快手/百家号等视频流请求
+            if (!videoSrc) {
+                const isXhsMedia = isXiaohongshu && (reqUrl.includes('xhscdn.com') || reqUrl.includes('sns-video')) && (reqUrl.includes('.mp4') || reqUrl.includes('video/'));
+                const isKsMedia = isKuaishou && (reqUrl.includes('kuaishouvod.com') || reqUrl.includes('.mp4'));
+                const isBjhMedia = isBaijiahao && (reqUrl.includes('bdstatic.com') || reqUrl.includes('baidu.com')) && reqUrl.includes('.mp4');
+
+                if (isXhsMedia || isKsMedia || isBjhMedia) {
+                    if (!reqUrl.includes('.m3u8') && !reqUrl.includes('.ts')) {
+                        videoSrc = reqUrl;
+                        console.log(`[嗅探成功] 拦截到 ${isXhsMedia ? '小红书' : isKsMedia ? '快手' : '百家号'} 视频直链: ${videoSrc.substring(0, 100)}...`);
+                        if (resolveIntercept) resolveIntercept();
+                    }
+                }
+            }
+
             // 4. 匹配常规的视频流后缀或 Content-Type (作为 Fallback)
             const contentType = response.headers()['content-type'] || '';
             if (contentType.includes('video/') || reqUrl.includes('.mp4?') || reqUrl.includes('video/tos') || reqUrl.includes('mimeType=video_mp4')) {
@@ -1238,6 +1341,8 @@ app.post('/api/parse', authenticate, async (req, res) => {
         else if (isXiaohongshu) platform = "小红书";
         else if (isTikTok) platform = "TikTok";
         else if (isYouTube) platform = "YouTube";
+        else if (isKuaishou) platform = "快手";
+        else if (isBaijiahao) platform = "百家号";
 
         // 提取元数据与文案描述
         const pageMeta = await page.evaluate(() => {
@@ -1264,8 +1369,25 @@ app.post('/api/parse', authenticate, async (req, res) => {
             // 尝试获取文案 (Description/Caption)
             let bDesc = '';
             try {
-                if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.videoData && window.__INITIAL_STATE__.videoData.desc) {
-                    bDesc = window.__INITIAL_STATE__.videoData.desc;
+                if (window.__INITIAL_STATE__) {
+                    if (window.__INITIAL_STATE__.videoData && window.__INITIAL_STATE__.videoData.desc) {
+                        bDesc = window.__INITIAL_STATE__.videoData.desc;
+                    } else if (window.__INITIAL_STATE__.note?.noteDetailMap) {
+                        const map = window.__INITIAL_STATE__.note.noteDetailMap;
+                        const key = Object.keys(map)[0];
+                        if (key && map[key]?.note?.desc) {
+                            bDesc = map[key].note.desc;
+                            if (map[key].note.title && !bDesc.includes(map[key].note.title)) {
+                                bDesc = map[key].note.title + '。' + bDesc;
+                            }
+                        }
+                    } else if (window.__INITIAL_STATE__.photo?.photoInfo?.caption) {
+                        bDesc = window.__INITIAL_STATE__.photo.photoInfo.caption;
+                    }
+                } else if (window.pageData && window.pageData.photo && window.pageData.photo.caption) {
+                    bDesc = window.pageData.photo.caption;
+                } else if (window.__context__ && window.__context__.articleTitle) {
+                    bDesc = window.__context__.articleTitle;
                 }
             } catch (e) { }
 
@@ -1295,6 +1417,10 @@ app.post('/api/parse', authenticate, async (req, res) => {
             title = title.replace("- 小红书", "").replace("_小红书", "");
         } else if (platform === "YouTube") {
             title = title.replace(" - YouTube", "");
+        } else if (platform === "快手") {
+            title = title.replace("- 快手", "").replace("_快手", "");
+        } else if (platform === "百家号") {
+            title = title.replace("- 百家号", "").replace("_百家号", "").replace("-百度", "").replace("_百度", "");
         }
 
         // ⚡ 极客数据增强：如果网络层没能拦截到详细文案，或文案为空，通过 B站 API 补充标签与热门评论
@@ -1458,6 +1584,81 @@ app.post('/api/parse', authenticate, async (req, res) => {
 
         if (!videoSrc) {
             videoSrc = await page.evaluate(() => {
+                // 递归查找对象中的视频地址
+                function findVideoUrl(obj, seen = new Set()) {
+                    if (!obj || typeof obj !== 'object' || seen.has(obj)) return null;
+                    seen.add(obj);
+
+                    const priorityKeys = ['masterUrl', 'master_url', 'playUrl', 'play_url', 'mainMvUrls', 'videoUrl', 'video_url', 'src', 'url'];
+                    for (const key of priorityKeys) {
+                        if (obj[key] && typeof obj[key] === 'string' && (obj[key].startsWith('http') || obj[key].startsWith('//'))) {
+                            const val = obj[key];
+                            const isVideo = val.includes('.mp4') || val.includes('video/tos') || val.includes('douyinvod') || val.includes('kuaishouvod') ||
+                                            (val.includes('xhscdn') && (val.includes('video') || val.includes('mp4')) && !val.includes('pic')) ||
+                                            (val.includes('bdstatic') && (val.includes('video') || val.includes('mp4') || val.includes('mda-')));
+                            if (isVideo && !/\.(js|css|png|jpe?g|webp|gif|json|woff2?|svg)(\?|$)/i.test(val)) {
+                                return val;
+                            }
+                        }
+                        if (Array.isArray(obj[key])) {
+                            for (const item of obj[key]) {
+                                if (typeof item === 'string' && (item.startsWith('http') || item.startsWith('//'))) {
+                                    const isVideo = item.includes('.mp4') || item.includes('video/tos') || item.includes('douyinvod') || item.includes('kuaishouvod') ||
+                                                    (item.includes('xhscdn') && (item.includes('video') || item.includes('mp4')) && !item.includes('pic')) ||
+                                                    (item.includes('bdstatic') && (item.includes('video') || item.includes('mp4') || item.includes('mda-')));
+                                    if (isVideo && !/\.(js|css|png|jpe?g|webp|gif|json|woff2?|svg)(\?|$)/i.test(item)) {
+                                        return item;
+                                    }
+                                }
+                                if (item && typeof item === 'object') {
+                                    const found = findVideoUrl(item, seen);
+                                    if (found) return found;
+                                }
+                            }
+                        }
+                    }
+
+                    for (const k in obj) {
+                        if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                            const val = obj[k];
+                            if (val && typeof val === 'object') {
+                                const found = findVideoUrl(val, seen);
+                                if (found) return found;
+                            }
+                        }
+                    }
+                    return null;
+                }
+
+                // 优先尝试从全局状态递归匹配视频链接（适用于小红书、快手、百家号等）
+                try {
+                    if (window.__INITIAL_STATE__) {
+                        const found = findVideoUrl(window.__INITIAL_STATE__);
+                        if (found) return found;
+                    }
+                } catch (e) { }
+
+                try {
+                    if (window.pageData) {
+                        const found = findVideoUrl(window.pageData);
+                        if (found) return found;
+                    }
+                } catch (e) { }
+
+                try {
+                    if (window.__context__) {
+                        const found = findVideoUrl(window.__context__);
+                        if (found) return found;
+                    }
+                } catch (e) { }
+
+                try {
+                    if (window._params) {
+                        const found = findVideoUrl(window._params);
+                        if (found) return found;
+                    }
+                } catch (e) { }
+
                 // B站特有全局变量
                 if (window.__playinfo__) {
                     if (window.__playinfo__.data?.durl?.[0]?.url) {
@@ -1691,6 +1892,8 @@ app.post('/api/summarize', authenticate, async (req, res) => {
         const isBili = urlStr.includes('bilibili.com') || urlStr.includes('bilivideo.com') || urlStr.includes('hdslb.com') || refStr.includes('bilibili.com') || refStr.includes('b23.tv');
         const isDouyin = urlStr.includes('douyin.com') || urlStr.includes('iesdouyin.com') || urlStr.includes('douyinvod.com') || urlStr.includes('snssdk.com') || refStr.includes('douyin.com') || refStr.includes('iesdouyin.com');
         const isXhs = urlStr.includes('xiaohongshu.com') || urlStr.includes('xhscdn.com') || refStr.includes('xiaohongshu.com') || refStr.includes('xhslink.com');
+        const isKs = urlStr.includes('kuaishouvod.com') || urlStr.includes('kuaishou.com') || urlStr.includes('gifshow.com') || refStr.includes('kuaishou.com') || refStr.includes('gifshow.com');
+        const isBjh = urlStr.includes('bdstatic.com') || urlStr.includes('baidu.com') || refStr.includes('baidu.com') || refStr.includes('baijiahao.baidu.com');
 
         if (isBili) {
             downloadHeaders['Referer'] = 'https://www.bilibili.com';
@@ -1698,6 +1901,11 @@ app.post('/api/summarize', authenticate, async (req, res) => {
             downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
         } else if (isXhs) {
             downloadHeaders['Referer'] = 'https://www.xiaohongshu.com';
+        } else if (isKs) {
+            downloadHeaders['Referer'] = 'https://www.kuaishou.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else if (isBjh) {
+            downloadHeaders['Referer'] = 'https://baijiahao.baidu.com';
         }
 
         // 2. 将视频下载到本地临时文件
@@ -1899,6 +2107,8 @@ app.get('/api/download', authenticate, async (req, res) => {
         const isXhs = urlStr.includes('xiaohongshu.com') || urlStr.includes('xhscdn.com') || refStr.includes('xiaohongshu.com') || refStr.includes('xhslink.com');
         const isYT = urlStr.includes('googlevideo.com') || urlStr.includes('youtube.com') || urlStr.includes('youtu.be') || refStr.includes('youtube.com') || refStr.includes('youtu.be');
         const isTT = urlStr.includes('tiktok.com') || urlStr.includes('tiktokcdn.com') || refStr.includes('tiktok.com');
+        const isKs = urlStr.includes('kuaishouvod.com') || urlStr.includes('kuaishou.com') || urlStr.includes('gifshow.com') || refStr.includes('kuaishou.com') || refStr.includes('gifshow.com');
+        const isBjh = urlStr.includes('bdstatic.com') || urlStr.includes('baidu.com') || refStr.includes('baidu.com') || refStr.includes('baijiahao.baidu.com');
 
         if (isBili) {
             downloadHeaders['Referer'] = 'https://www.bilibili.com';
@@ -1915,6 +2125,12 @@ app.get('/api/download', authenticate, async (req, res) => {
         } else if (isTT) {
             downloadHeaders['Referer'] = 'https://www.tiktok.com';
             downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else if (isKs) {
+            downloadHeaders['Referer'] = 'https://www.kuaishou.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+        } else if (isBjh) {
+            downloadHeaders['Referer'] = 'https://baijiahao.baidu.com';
+            downloadHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
         } else {
             // General Fallback
             if (referer) {

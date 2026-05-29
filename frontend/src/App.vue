@@ -965,11 +965,48 @@ const openBenefits = () => {
   fetchUserLogsForChart()
 }
 
+const showPaymentModal = ref(false)
+const selectedPlan = ref('') // 'pro_monthly' | 'pro_lifetime'
+const selectedPlanTitle = computed(() => {
+  return selectedPlan.value === 'pro_monthly' ? 'Pro 专业版 (月付)' : 'Pro 永久版 (一次性)'
+})
+const selectedPlanPrice = computed(() => {
+  return selectedPlan.value === 'pro_monthly' ? '20' : '199'
+})
+const paymentMethod = ref('wechat') // 'wechat' | 'alipay'
+
+const closePaymentModal = () => {
+  showPaymentModal.value = false
+}
+
 const upgradePlan = (plan) => {
-  if (plan === 'pro') {
-    showToast('敬请期待！', 'info')
-  } else {
-    showToast('企业版服务通道敬请期待！', 'info')
+  if (plan === 'free') return
+  selectedPlan.value = plan
+  showPaymentModal.value = true
+}
+
+const simulatePaymentSuccess = async () => {
+  try {
+    const res = await fetch(`${ENGINE_API_URL}/api/user/simulate-upgrade`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token.value}`
+      },
+      body: JSON.stringify({ plan: selectedPlan.value })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast(data.message, 'success')
+      if (currentUser.value) {
+        currentUser.value.role = 'pro'
+      }
+      showPaymentModal.value = false
+    } else {
+      showToast(data.message || '模拟支付升级失败！', 'error')
+    }
+  } catch (err) {
+    showToast('请求模拟支付升级接口失败，请检查后端！', 'error')
   }
 }
 
@@ -1835,6 +1872,101 @@ const fillExample = (url) => {
     </div>
   </Transition>
 
+  <!-- Pro Upgrade Payment Modal -->
+  <Transition name="toast-fade">
+    <div v-if="showPaymentModal" class="settings-overlay" @click.self="closePaymentModal">
+      <div class="settings-modal change-pw-modal" style="max-width: 460px; position: relative; overflow: visible; padding: 30px;">
+        <!-- Card glows inside modal -->
+        <div class="auth-card-glow glow-1" style="opacity: 0.15; width: 200px; height: 200px; filter: blur(50px);"></div>
+        <div class="auth-card-glow glow-2" style="opacity: 0.15; width: 200px; height: 200px; filter: blur(50px);"></div>
+
+        <button class="settings-close" @click="closePaymentModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+
+        <h3 class="settings-title" style="margin-bottom: 5px; text-align: center; font-size: 1.35rem;">💎 升级 VidFetch Pro 账号</h3>
+        <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px;">获取每日无限次、极客高速通道及 AI 字幕核心要点提取</p>
+
+        <!-- Selected Plan Details -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">所选套餐</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: #a78bfa; margin-top: 4px;">{{ selectedPlanTitle }}</div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 0.85rem; color: var(--text-muted);">支付金额</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #06b6d4; margin-top: 4px;">¥{{ selectedPlanPrice }}</div>
+          </div>
+        </div>
+
+        <!-- Payment Method Selector -->
+        <div style="margin-bottom: 24px;">
+          <div style="font-size: 0.9rem; font-weight: 700; color: var(--text-primary); margin-bottom: 12px;">选择支付方式</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <button 
+              class="pay-method-btn" 
+              :class="{ active: paymentMethod === 'wechat' }"
+              @click="paymentMethod = 'wechat'"
+              style="display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-color); border-radius: 10px; height: 48px; cursor: pointer; transition: all 0.2s;"
+            >
+              <span style="font-size: 1.25rem;">🟢</span>
+              <span style="font-weight: 700;">微信支付</span>
+            </button>
+            <button 
+              class="pay-method-btn" 
+              :class="{ active: paymentMethod === 'alipay' }"
+              @click="paymentMethod = 'alipay'"
+              style="display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-color); border-radius: 10px; height: 48px; cursor: pointer; transition: all 0.2s;"
+            >
+              <span style="font-size: 1.25rem;">🔵</span>
+              <span style="font-weight: 700;">支付宝</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- QR Code Area -->
+        <div style="display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; position: relative;">
+          <!-- SVG QR Code Mockup -->
+          <div style="width: 160px; height: 160px; background: white; padding: 8px; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <svg viewBox="0 0 100 100" style="width: 100%; height: 100%; color: #1e1e2f;">
+              <!-- Border corners -->
+              <rect x="0" y="0" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
+              <rect x="6" y="6" width="18" height="18" fill="currentColor"/>
+              <rect x="70" y="0" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
+              <rect x="76" y="6" width="18" height="18" fill="currentColor"/>
+              <rect x="0" y="70" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
+              <rect x="6" y="76" width="18" height="18" fill="currentColor"/>
+              <!-- Mock QR blocks -->
+              <rect x="40" y="10" width="10" height="10" fill="currentColor"/>
+              <rect x="50" y="20" width="10" height="10" fill="currentColor"/>
+              <rect x="40" y="40" width="20" height="20" fill="currentColor"/>
+              <rect x="10" y="40" width="10" height="20" fill="currentColor"/>
+              <rect x="70" y="40" width="20" height="10" fill="currentColor"/>
+              <rect x="40" y="70" width="20" height="10" fill="currentColor"/>
+              <rect x="70" y="70" width="10" height="20" fill="currentColor"/>
+              <!-- Payment Icon Overlay in middle -->
+              <rect x="35" y="35" width="30" height="30" rx="6" fill="white"/>
+              <text x="50" y="56" font-size="18" font-weight="900" text-anchor="middle" fill="#8b5cf6">V</text>
+            </svg>
+          </div>
+          
+          <div style="margin-top: 16px; font-size: 0.85rem; color: var(--text-secondary); text-align: center;">
+            请使用{{ paymentMethod === 'wechat' ? '微信' : '支付宝' }}扫一扫完成支付
+          </div>
+        </div>
+
+        <!-- Dev Simulator Button -->
+        <button 
+          class="settings-save-btn" 
+          @click="simulatePaymentSuccess"
+          style="margin-top: 24px; width: 100%; height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; border-radius: 12px; background: linear-gradient(90deg, #10b981, #059669); color: white; border: none; cursor: pointer; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.25);"
+        >
+          ⚙️ 模拟支付成功 (开发环境测试)
+        </button>
+      </div>
+    </div>
+  </Transition>
+
   <!-- Change Password Modal (Dual mode: Normal vs Email Verification Code Reset) -->
   <Transition name="toast-fade">
     <div v-if="showChangePasswordModal" class="settings-overlay" @click.self="showChangePasswordModal = false">
@@ -2229,6 +2361,7 @@ const fillExample = (url) => {
               placeholder="请输入您的邮箱" 
               class="form-input"
               @input="authErrors.regUsername = ''"
+              @keyup.enter="handleRegister"
             />
           </div>
           <Transition name="slide-fade">
@@ -2246,6 +2379,7 @@ const fillExample = (url) => {
               placeholder="请输入注册密码 (不少于6位)" 
               class="form-input"
               @input="authErrors.regPassword = ''"
+              @keyup.enter="handleRegister"
             />
           </div>
           <Transition name="slide-fade">
@@ -2263,6 +2397,7 @@ const fillExample = (url) => {
               placeholder="设置您的显示昵称" 
               class="form-input"
               @input="authErrors.regNickname = ''"
+              @keyup.enter="handleRegister"
             />
           </div>
           <Transition name="slide-fade">
@@ -2283,6 +2418,7 @@ const fillExample = (url) => {
                   placeholder="图形验证码" 
                   class="form-input" 
                   @input="authErrors.regCaptcha = ''"
+                  @keyup.enter="handleRegister"
                 />
               </div>
               <Transition name="slide-fade">
@@ -2346,6 +2482,7 @@ const fillExample = (url) => {
               placeholder="请输入您绑定的注册邮箱" 
               class="form-input"
               @input="authErrors.resetEmail = ''"
+              @keyup.enter="handleResetPassword"
             />
           </div>
           <Transition name="slide-fade">
@@ -2367,6 +2504,7 @@ const fillExample = (url) => {
                   placeholder="图形验证码" 
                   class="form-input" 
                   @input="authErrors.resetCaptcha = ''"
+                  @keyup.enter="handleResetPassword"
                 />
               </div>
               <Transition name="slide-fade">
@@ -2398,6 +2536,7 @@ const fillExample = (url) => {
                   placeholder="6位安全验证码" 
                   class="form-input" 
                   @input="authErrors.resetCode = ''"
+                  @keyup.enter="handleResetPassword"
                 />
               </div>
               <Transition name="slide-fade">
@@ -2754,7 +2893,7 @@ const fillExample = (url) => {
           </div>
         </div>
 
-        <!-- Package Upgrade Grid (Moved Above Chart) -->
+        <!-- Package Upgrade Grid -->
         <h3 style="font-size: 1.25rem; font-weight: 800; margin-top: 10px; margin-bottom: 20px; color: var(--text-primary); text-align: center;">⚡ 套餐升级与对比</h3>
         
         <div class="benefits-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 35px;">
@@ -2773,10 +2912,10 @@ const fillExample = (url) => {
                     <span style="color: #10b981;">✓</span> <span>每日限制解析提取 5 次</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>火山引擎 ASR 语音识别 (限制 30MB)</span>
+                    <span style="color: #10b981;">✓</span> <span>主流短视频平台无水印解析</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>主流自媒体短视频平台无水印解析</span>
+                    <span style="color: #10b981;">✓</span> <span>ASR 语音转文字 (最大 30MB)</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); opacity: 0.5;">
                     <span style="color: #f43f5e;">✗</span> <span>不支持高并发快速下载通道</span>
@@ -2796,15 +2935,15 @@ const fillExample = (url) => {
             </button>
           </div>
 
-          <!-- 2. Pro Plan -->
+          <!-- 2. Pro Plan (Monthly) -->
           <div class="pkg-card pro-card" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.05) 0%, rgba(6, 182, 212, 0.05) 100%); border: 2px solid #8b5cf6; padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between; position: relative; box-shadow: 0 10px 30px rgba(139, 92, 246, 0.15);">
-            <div style="position: absolute; top: -12px; right: 20px; background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">推荐</div>
+            <div style="position: absolute; top: -12px; right: 20px; background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">最常用</div>
             <div>
               <div style="font-size: 1.25rem; font-weight: 800; color: #a78bfa; display: flex; align-items: center; gap: 6px;">
                 💎 Pro 专业版
               </div>
               <div style="margin-top: 15px; display: flex; align-items: baseline;">
-                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥99</span>
+                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥20</span>
                 <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 月</span>
               </div>
               <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">适合高频自媒体创作者、剪辑团队、文案提炼研究者。</div>
@@ -2817,10 +2956,10 @@ const fillExample = (url) => {
                     <span style="color: #10b981;">✓</span> <span>极速并发下载与提取 (满速不限流)</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>超长 ASR 语音识别专线 (最大支持 200MB 视频)</span>
+                    <span style="color: #10b981;">✓</span> <span>超长 ASR 语音识别 (支持最大 200MB 视频)</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>尊享 DeepSeek/ChatGPT 核心总结大模型通道</span>
+                    <span style="color: #10b981;">✓</span> <span>尊享 DeepSeek/Qwen 核心总结大模型通道</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
                     <span style="color: #10b981;">✓</span> <span>享有个人尊贵权益 Pro 星环标识</span>
@@ -2830,52 +2969,55 @@ const fillExample = (url) => {
             </div>
             
             <button 
-              @click="upgradePlan('pro')"
+              @click="upgradePlan('pro_monthly')"
               style="margin-top: 30px; width: 100%; height: 42px; background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: white; border: none; font-weight: 700; border-radius: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);"
               onmouseover="this.style.opacity='0.9'; this.style.transform='translateY(-1px)';"
               onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)';"
             >
-              {{ currentUser?.role === 'pro' ? '已是 Pro 版' : '立即升级 Pro 套餐' }}
+              {{ currentUser?.role === 'pro' ? '已是 Pro 权益' : '立即升级 Pro 专业版' }}
             </button>
           </div>
 
-          <!-- 3. Enterprise Plan -->
-          <div class="pkg-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between;">
+          <!-- 3. Lifetime Plan -->
+          <div class="pkg-card" style="background: rgba(255,255,255,0.02); border: 2px solid rgba(56, 189, 248, 0.4); padding: 28px; border-radius: 20px; display: flex; flex-direction: column; justify-content: space-between; position: relative; box-shadow: 0 10px 30px rgba(56, 189, 248, 0.05);">
+            <div style="position: absolute; top: -12px; right: 20px; background: #0284c7; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">超值</div>
             <div>
-              <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8;">企业超级版</div>
-              <div style="margin-top: 15px; display: flex; align-items: baseline;">
-                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥499</span>
-                <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 月</span>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                👑 Pro 永久版
               </div>
-              <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">适合中大型企业、协作媒体机构以及需要独立管理后台的组织。</div>
-              <div style="margin-top: 24px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 20px;">
+              <div style="margin-top: 15px; display: flex; align-items: baseline;">
+                <span style="font-size: 2.2rem; font-weight: 800; color: var(--text-primary);">¥199</span>
+                <span style="color: var(--text-muted); margin-left: 4px; font-size: 0.9rem;">/ 永久</span>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">一次购买，终身享有。适合高产自媒体工作室、极客玩家。</div>
+              <div style="margin-top: 24px; border-top: 1px dashed rgba(56, 189, 248, 0.2); padding-top: 20px;">
                 <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; font-size: 0.9rem;">
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #38bdf8;">✓</span> <span><strong>享有所有 Pro 尊享级权益</strong></span>
+                    <span style="color: #38bdf8; font-weight: 900;">★</span> <span><strong>终身无任何解析次数限制 (无限次)</strong></span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>内置多用户创建与配额管控管理</span>
+                    <span style="color: #10b981;">✓</span> <span>享有所有 Pro 尊享级全部权益</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>企业级操作日志全面级联审计与筛选</span>
+                    <span style="color: #10b981;">✓</span> <span>永久免费享用后续所有新版功能更新</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>防灾防误操作 - 一键云端备份恢复系统配置</span>
+                    <span style="color: #10b981;">✓</span> <span>尊享物理宽带独立 VIP 嗅探专线通道</span>
                   </li>
                   <li style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #10b981;">✓</span> <span>自定义全局发信 SMTP 邮箱验证服务器</span>
+                    <span style="color: #10b981;">✓</span> <span>24小时全天候专属技术群极速支持</span>
                   </li>
                 </ul>
               </div>
             </div>
             
             <button 
-              @click="upgradePlan('enterprise')"
+              @click="upgradePlan('pro_lifetime')"
               style="margin-top: 30px; width: 100%; height: 42px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; border-radius: 12px; cursor: pointer; transition: all 0.2s;"
               onmouseover="this.style.background='rgba(56, 189, 248, 0.22)'; this.style.transform='translateY(-1px)';"
               onmouseout="this.style.background='rgba(56, 189, 248, 0.12)'; this.style.transform='translateY(0)';"
             >
-              申请企业合作
+              {{ currentUser?.role === 'pro' ? '已是 Pro 权益' : '立即开通永久版' }}
             </button>
           </div>
         </div>
@@ -3690,10 +3832,27 @@ const fillExample = (url) => {
   display: flex;
   align-items: center;
   gap: 12px;
-  z-index: 9999;
+  z-index: 20000;
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   max-width: 320px;
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Pay Method Selector Buttons */
+.pay-method-btn {
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+.pay-method-btn:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--text-primary) !important;
+}
+.pay-method-btn.active {
+  border-color: var(--color-violet) !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
 }
 
 .custom-toast.success {
