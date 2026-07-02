@@ -25,7 +25,7 @@
       "username": "3294935940@qq.com",
       "email": "3294935940@qq.com",
       "password": "aad415a73c4cef1ef94a5c00b2642b571a3e5494536328ad960db61889bd9368",
-      "role": "user",
+      "role": "pro",
       "nickname": "user01",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=3294935940%40qq.com",
       "usage": {
@@ -344,6 +344,13 @@
       "role": "admin",
       "action": "下载物理视频",
       "targetUrl": "https://baijiahao.baidu.com/s?id=1866505002753333560"
+    },
+    {
+      "timestamp": "2026-06-07T04:35:46.062Z",
+      "username": "mediaAdmin",
+      "role": "admin",
+      "action": "修改用户 test_user_role_expiry_1780806946033 角色为 pro (有效期至 2026/6/9 12:35:46)",
+      "targetUrl": ""
     }
   ],
   "sessions": {
@@ -406,6 +413,30 @@
     "token_qztkfc2iqanmpr2rlps": {
       "username": "3294935940@qq.com",
       "expireAt": 1780241202352
+    },
+    "token_cl99grqp8yrmpt6mdly": {
+      "username": "3294935940@qq.com",
+      "expireAt": 1780368609382
+    },
+    "token_r274p7bzydkmq3a6n1l": {
+      "username": "mediaAdmin",
+      "expireAt": 1780979255337
+    },
+    "token_ph1ni0wds9dmq3ah5nk": {
+      "username": "mediaAdmin",
+      "expireAt": 1780979746016
+    },
+    "token_9ivvxpm8n4qmqkgjlcg": {
+      "username": "3294935940@qq.com",
+      "expireAt": 1782017862352
+    },
+    "token_bho1zlvyz1emr3m1xao": {
+      "username": "3294935940@qq.com",
+      "expireAt": 1783175973072
+    },
+    "token_ur0y14xrsllmr3mltyg": {
+      "username": "mediaAdmin",
+      "expireAt": 1783176901864
     }
   },
   "smtp": {

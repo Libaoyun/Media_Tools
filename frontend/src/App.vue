@@ -351,6 +351,23 @@ const adminTab = ref('users') // 'users' | 'logs'
 const adminUsers = ref([])
 const adminLogs = ref([])
 
+// 新增用户与角色编辑相关变量
+const createEmail = ref('')
+const searchUserQuery = ref('')
+const editRole = ref('user')
+const editValidityType = ref('permanent')
+const editValidityValue = ref(1)
+
+const filteredAdminUsers = computed(() => {
+  const query = searchUserQuery.value.trim().toLowerCase()
+  if (!query) return adminUsers.value
+  return adminUsers.value.filter(u => 
+    u.username.toLowerCase().includes(query) || 
+    (u.nickname && u.nickname.toLowerCase().includes(query)) ||
+    (u.email && u.email.toLowerCase().includes(query))
+  )
+})
+
 // 审计日志筛选与用户详情查看状态
 const filterLogStartDate = ref('')
 const filterLogEndDate = ref('')
@@ -371,6 +388,9 @@ const clearLogFilters = () => {
 
 const inspectUser = (user) => {
   inspectedUser.value = user
+  editRole.value = user.role
+  editValidityType.value = 'permanent'
+  editValidityValue.value = 1
 }
 
 const quickViewLogs = (username, timeScope) => {
@@ -1178,6 +1198,14 @@ const handleCreateUser = async () => {
     showToast('用户名和密码不能为空！', 'error')
     return
   }
+  const emailVal = createEmail.value.trim()
+  if (emailVal) {
+    const emailRegex = /^\S+@\S+\.\S+$/
+    if (!emailRegex.test(emailVal)) {
+      showToast('请输入有效的邮箱地址！', 'error')
+      return
+    }
+  }
   try {
     const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/users/create`, {
       method: 'POST',
@@ -1186,7 +1214,8 @@ const handleCreateUser = async () => {
         username: createUsername.value.trim(),
         password: createPassword.value.trim(),
         nickname: createNickname.value.trim() || createUsername.value.trim(),
-        role: createRole.value
+        role: createRole.value,
+        email: emailVal || undefined
       })
     })
     const data = await res.json()
@@ -1195,6 +1224,7 @@ const handleCreateUser = async () => {
       createUsername.value = ''
       createPassword.value = ''
       createNickname.value = ''
+      createEmail.value = ''
       createRole.value = 'user'
       showCreateUserForm.value = false
       await fetchAdminUsers()
@@ -1203,6 +1233,47 @@ const handleCreateUser = async () => {
     }
   } catch (e) {
     showToast('创建账号接口错误！', 'error')
+  }
+}
+
+// 管理员修改用户角色与有效期
+const handleUpdateRole = async () => {
+  if (!inspectedUser.value) return
+  if (inspectedUser.value.username === 'mediaAdmin' || inspectedUser.value.username === 'mediaSuper') {
+    showToast('系统内置账号角色无法修改！', 'error')
+    return
+  }
+  try {
+    const res = await fetchWithAuth(`${ENGINE_API_URL}/api/admin/users/update-role`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: inspectedUser.value.username,
+        role: editRole.value,
+        validityType: editValidityType.value,
+        validityValue: editValidityValue.value
+      })
+    })
+    const data = await res.json()
+    if (res.ok && data.success) {
+      showToast('用户角色及有效期设置成功！', 'success')
+      // 更新本地数据
+      inspectedUser.value.role = editRole.value
+      if (editRole.value === 'user' || editValidityType.value === 'permanent') {
+        inspectedUser.value.roleExpireAt = null
+      } else {
+        const val = parseInt(editValidityValue.value) || 1
+        let ms = val * 24 * 60 * 60 * 1000
+        if (editValidityType.value === 'month') ms = val * 30 * 24 * 60 * 60 * 1000
+        else if (editValidityType.value === 'year') ms = val * 365 * 24 * 60 * 60 * 1000
+        inspectedUser.value.roleExpireAt = new Date(Date.now() + ms).toISOString()
+      }
+      await fetchAdminUsers()
+    } else {
+      showToast(data.message || '设置角色失败！', 'error')
+    }
+  } catch (e) {
+    showToast('修改角色接口错误！', 'error')
   }
 }
 
@@ -1235,7 +1306,7 @@ const formatDate = (isoStr) => {
   try {
     const d = new Date(isoStr)
     const pad = (n) => n.toString().padStart(2, '0')
-    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   } catch (e) {
     return isoStr
   }
@@ -1899,7 +1970,41 @@ const fillExample = (url) => {
           </div>
         </div>
 
-        <!-- Payment Method Selector -->
+        <!-- WeChat Recharge Customer Service Block -->
+        <div style="display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px 16px; text-align: center; position: relative; margin-bottom: 24px;">
+          <!-- WeChat Icon -->
+          <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 26px; height: 26px; color: #10b981;">
+              <path d="M8.5 14c-.28 0-.5-.22-.5-.5V13c0-.28.22-.5.5-.5h.01c.28 0 .5.22.5.5v.5c0 .28-.22.5-.5.5zm7 0c-.28 0-.5-.22-.5-.5V13c0-.28.22-.5.5-.5h.01c.28 0 .5.22.5.5v.5c0 .28-.22.5-.5.5zm.37-6.28A6.47 6.47 0 0 0 12 6c-3.59 0-6.5 2.46-6.5 5.5 0 1.77.99 3.36 2.55 4.4a.5.5 0 0 1 .19.46l-.37 1.48c-.06.24.16.44.38.35l1.82-.73a.5.5 0 0 1 .36.03c.66.33 1.39.51 2.14.51.35 0 .7-.04 1.05-.12A5.46 5.46 0 0 1 13 17.5c0-3.04 2.91-5.5 6.5-5.5a6.4 6.4 0 0 1 2.37.45 6.52 6.52 0 0 0-6-4.73zm4.63 7.78A4.47 4.47 0 0 0 19 14.5c-2.48 0-4.5 1.57-4.5 3.5 0 1.12.68 2.13 1.76 2.8a.3.3 0 0 1 .11.29l-.21.84a.26.26 0 0 0 .26.31l1.04-.42c.1-.04.2-.04.3.01.39.2.86.31 1.33.31 2.48 0 4.5-1.57 4.5-3.5a4.44 4.44 0 0 0-3.09-3.76z"/>
+            </svg>
+          </div>
+
+          <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">
+            扫码快捷充值暂停维护
+          </div>
+          
+          <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px; max-width: 340px; padding: 0 10px;">
+            因扫码充值功能调整升级，当前已暂停自动充值。如需充值升级 Pro 会员，请复制下方微信号添加好友，我们将为您人工手动开通升级。
+          </div>
+
+          <!-- WeChat ID Card -->
+          <div style="width: 100%; max-width: 300px; background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(167, 139, 250, 0.3); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+            <div style="display: flex; flex-direction: column; align-items: flex-start;">
+              <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">客服微信号</span>
+              <span style="font-size: 1.15rem; font-weight: 800; color: #a78bfa; font-family: monospace; text-shadow: 0 0 10px rgba(167, 139, 250, 0.3);">qsyr199qy</span>
+            </div>
+            <button 
+              @click="copyUrl('qsyr199qy', '微信号已成功复制！请打开微信添加好友。')"
+              style="padding: 8px 14px; font-size: 0.8rem; font-weight: 700; border-radius: 8px; background: rgba(167, 139, 250, 0.15); color: #c084fc; border: 1px solid rgba(167, 139, 250, 0.2); cursor: pointer; transition: all 0.2s;"
+              onmouseover="this.style.background='rgba(167, 139, 250, 0.25)';"
+              onmouseout="this.style.background='rgba(167, 139, 250, 0.15)';"
+            >
+              复制微信号
+            </button>
+          </div>
+        </div>
+
+        <!-- Payment Method Selector (Temporarily Hidden)
         <div style="margin-bottom: 24px;">
           <div style="font-size: 0.9rem; font-weight: 700; color: var(--text-primary); margin-bottom: 12px;">选择支付方式</div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -1923,20 +2028,18 @@ const fillExample = (url) => {
             </button>
           </div>
         </div>
+        -->
 
-        <!-- QR Code Area -->
+        <!-- QR Code Area (Temporarily Hidden)
         <div style="display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; position: relative;">
-          <!-- SVG QR Code Mockup -->
           <div style="width: 160px; height: 160px; background: white; padding: 8px; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
             <svg viewBox="0 0 100 100" style="width: 100%; height: 100%; color: #1e1e2f;">
-              <!-- Border corners -->
               <rect x="0" y="0" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
               <rect x="6" y="6" width="18" height="18" fill="currentColor"/>
               <rect x="70" y="0" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
               <rect x="76" y="6" width="18" height="18" fill="currentColor"/>
               <rect x="0" y="70" width="30" height="30" fill="none" stroke="currentColor" stroke-width="6"/>
               <rect x="6" y="76" width="18" height="18" fill="currentColor"/>
-              <!-- Mock QR blocks -->
               <rect x="40" y="10" width="10" height="10" fill="currentColor"/>
               <rect x="50" y="20" width="10" height="10" fill="currentColor"/>
               <rect x="40" y="40" width="20" height="20" fill="currentColor"/>
@@ -1944,7 +2047,6 @@ const fillExample = (url) => {
               <rect x="70" y="40" width="20" height="10" fill="currentColor"/>
               <rect x="40" y="70" width="20" height="10" fill="currentColor"/>
               <rect x="70" y="70" width="10" height="20" fill="currentColor"/>
-              <!-- Payment Icon Overlay in middle -->
               <rect x="35" y="35" width="30" height="30" rx="6" fill="white"/>
               <text x="50" y="56" font-size="18" font-weight="900" text-anchor="middle" fill="#8b5cf6">V</text>
             </svg>
@@ -1954,8 +2056,9 @@ const fillExample = (url) => {
             请使用{{ paymentMethod === 'wechat' ? '微信' : '支付宝' }}扫一扫完成支付
           </div>
         </div>
+        -->
 
-        <!-- Dev Simulator Button -->
+        <!-- Dev Simulator Button (Commented Out)
         <button 
           class="settings-save-btn" 
           @click="simulatePaymentSuccess"
@@ -1963,6 +2066,7 @@ const fillExample = (url) => {
         >
           ⚙️ 模拟支付成功 (开发环境测试)
         </button>
+        -->
       </div>
     </div>
   </Transition>
@@ -3120,7 +3224,7 @@ const fillExample = (url) => {
       <!-- Users Tab -->
       <div v-if="adminTab === 'users'" class="admin-pane animate-fade-in">
         <!-- User Detail Panel -->
-        <div v-if="inspectedUser" class="user-detail-panel animate-fade-in" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); padding: 24px; border-radius: 16px; text-align: left;">
+        <div v-if="inspectedUser" class="user-detail-panel animate-fade-in">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
             <h3 style="margin: 0; font-size: 1.15rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
               👤 用户详情: {{ inspectedUser.nickname || inspectedUser.username }}
@@ -3149,10 +3253,20 @@ const fillExample = (url) => {
                 <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">显示昵称</label>
                 <div style="color: var(--text-primary); font-weight: 600; font-size: 0.95rem;">{{ inspectedUser.nickname }}</div>
               </div>
-              <div style="grid-column: 1 / -1;">
-                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">个人简介</label>
-                <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; background: rgba(255,255,255,0.01); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 50px; white-space: pre-wrap;">
-                  {{ inspectedUser.bio || '这家伙很懒，什么都没有留下。' }}
+              <div>
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">绑定邮箱</label>
+                <div style="color: var(--text-primary); font-weight: 600; font-size: 0.95rem; word-break: break-all;">{{ inspectedUser.email || '未绑定邮箱' }}</div>
+              </div>
+              <div>
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">角色有效期</label>
+                <div v-if="inspectedUser.roleExpireAt" style="color: #f43f5e; font-weight: 700; font-size: 0.95rem;">
+                  📅 过期时间: {{ formatDate(inspectedUser.roleExpireAt) }}
+                </div>
+                <div v-else-if="inspectedUser.role !== 'user'" style="color: #10b981; font-weight: 700; font-size: 0.95rem;">
+                  ♾️ 永久有效
+                </div>
+                <div v-else style="color: var(--text-secondary); font-size: 0.95rem;">
+                  -
                 </div>
               </div>
               <div>
@@ -3162,13 +3276,60 @@ const fillExample = (url) => {
                   <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-secondary);"> / {{ inspectedUser.role === 'admin' || inspectedUser.role === 'super' || inspectedUser.role === 'pro' ? '∞' : '5' }}</span>
                 </div>
               </div>
+              <div style="grid-column: 1 / -1;">
+                <label style="color: var(--text-muted); font-size: 0.8rem; display: block; margin-bottom: 4px;">个人简介</label>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; background: rgba(255,255,255,0.01); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 50px; white-space: pre-wrap;">
+                  {{ inspectedUser.bio || '这家伙很懒，什么都没有留下。' }}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Role Update Section -->
+          <div v-if="inspectedUser.username !== 'mediaAdmin' && inspectedUser.username !== 'mediaSuper'" class="role-update-section">
+            <h4 style="margin: 0 0 16px 0; font-size: 0.95rem; color: var(--text-primary); font-weight: 700; display: flex; align-items: center; gap: 6px;">
+              🔑 修改用户角色及有效期
+            </h4>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;">
+              <div class="form-group" style="margin-bottom: 0; min-width: 160px; flex: 1;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">目标角色</label>
+                <select v-model="editRole" class="form-input" style="padding: 8px 12px; font-size: 0.85rem; margin-bottom: 0; height: 38px;">
+                  <option value="user" style="background:#0f1123; color:#f1f5f9;">普通用户 (日限5次)</option>
+                  <option value="pro" style="background:#0f1123; color:#f1f5f9;">Pro用户 (无限提取)</option>
+                  <option value="super" style="background:#0f1123; color:#f1f5f9;">超级用户 (无限，限1个)</option>
+                  <option value="admin" style="background:#0f1123; color:#f1f5f9;">系统管理员 (无限，限1个)</option>
+                </select>
+              </div>
+              
+              <div v-if="editRole !== 'user'" class="form-group" style="margin-bottom: 0; min-width: 140px; flex: 1;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">有效期类型</label>
+                <select v-model="editValidityType" class="form-input" style="padding: 8px 12px; font-size: 0.85rem; margin-bottom: 0; height: 38px;">
+                  <option value="permanent" style="background:#0f1123; color:#f1f5f9;">永久有效</option>
+                  <option value="day" style="background:#0f1123; color:#f1f5f9;">按天数设置</option>
+                  <option value="month" style="background:#0f1123; color:#f1f5f9;">按月份设置</option>
+                  <option value="year" style="background:#0f1123; color:#f1f5f9;">按年份设置</option>
+                </select>
+              </div>
+              
+              <div v-if="editRole !== 'user' && editValidityType !== 'permanent'" class="form-group" style="margin-bottom: 0; max-width: 100px; flex: 1;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">有效期数值</label>
+                <input type="number" min="1" v-model.number="editValidityValue" class="form-input" style="padding: 8px 12px; font-size: 0.85rem; margin-bottom: 0; height: 38px;" />
+              </div>
+              
+              <button 
+                class="settings-save-btn" 
+                style="margin-top: 0; height: 38px; padding: 0 16px; font-size: 0.85rem; font-weight: 700; background: linear-gradient(90deg, #8b5cf6, #d946ef);" 
+                @click="handleUpdateRole"
+              >
+                保存并生效
+              </button>
             </div>
           </div>
           
           <div style="display: flex; gap: 12px; margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; flex-wrap: wrap;">
             <button 
               class="settings-save-btn" 
-              style="margin-top: 0; padding: 10px 18px; font-size: 0.88rem; background: var(--gradient-glow); border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 6px;"
+              style="margin-top: 0; padding: 10px 18px; font-size: 0.88rem; background: var(--gradient-glow); border: none; border-radius: 8px; color: white; pointer-events: auto; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 6px;"
               @click="quickViewLogs(inspectedUser.username, 'all')"
             >
               📅 查看历史操作日志
@@ -3193,10 +3354,22 @@ const fillExample = (url) => {
         </div>
 
         <div v-else class="animate-fade-in" style="display: flex; flex-direction: column; width: 100%;">
-          <div class="admin-action-row" style="text-align: left; margin-bottom: 16px;">
+          <div class="admin-action-row" style="text-align: left; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; width: 100%;">
             <button class="create-user-toggle-btn" @click="showCreateUserForm = !showCreateUserForm">
               {{ showCreateUserForm ? '❌ 取消创建' : '➕ 创建新账号' }}
             </button>
+            <div style="position: relative; width: 260px;">
+              <input 
+                type="text" 
+                v-model="searchUserQuery" 
+                placeholder="🔍 搜索昵称、账号或邮箱..." 
+                class="form-input" 
+                style="height: 38px; padding-left: 36px; padding-right: 12px; font-size: 0.85rem; border-radius: 8px; margin-bottom: 0;"
+              />
+              <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.9rem; pointer-events: none;">
+                🔍
+              </span>
+            </div>
           </div>
           
           <!-- Create User Form -->
@@ -3223,6 +3396,10 @@ const fillExample = (url) => {
                   <option value="admin" style="background:#0f1123; color:#f1f5f9;">系统管理员 (无限制，限1个)</option>
                 </select>
               </div>
+              <div class="form-group" style="grid-column: span 2;">
+                <label class="form-label">邮箱 (可用于找回重置密码，选填)</label>
+                <input type="text" v-model="createEmail" placeholder="例如: user@example.com" class="form-input" />
+              </div>
             </div>
             <button class="settings-save-btn" style="margin-top: 10px;" @click="handleCreateUser">确认创建账号</button>
           </div>
@@ -3240,7 +3417,7 @@ const fillExample = (url) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="user in adminUsers" :key="user.username">
+                <tr v-for="user in filteredAdminUsers" :key="user.username">
                   <td>
                     <div class="table-user-cell" style="display: flex; align-items: center; gap: 8px;">
                       <img :src="user.avatar" class="table-avatar" style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05);" />
@@ -3757,19 +3934,21 @@ const fillExample = (url) => {
 
 .form-input {
   width: 100%;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
+  background: rgba(10, 11, 22, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 10px;
-  padding: 12px;
-  color: var(--text-primary);
-  font-size: 0.95rem;
+  padding: 12px 16px;
+  color: var(--text-primary) !important;
+  font-size: 0.92rem;
   outline: none;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .form-input:focus {
-  border-color: var(--color-violet);
-  box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+  border-color: #c084fc !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2), 0 0 15px rgba(167, 139, 250, 0.25) !important;
+  background: rgba(10, 11, 22, 0.8) !important;
 }
 
 .form-tip {
@@ -5349,35 +5528,42 @@ const fillExample = (url) => {
 
 .admin-tabs {
   display: flex;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   padding: 4px;
-  border-radius: 12px;
+  border-radius: 14px;
   gap: 6px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 .admin-tab-btn {
   flex: 1;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text-secondary);
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .admin-tab-btn:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .admin-tab-btn.active {
-  background: rgba(139, 92, 246, 0.15);
-  color: var(--color-violet);
-  border: 1px solid rgba(139, 92, 246, 0.2);
+  background: rgba(167, 139, 250, 0.12);
+  color: #c084fc;
+  border-color: rgba(167, 139, 250, 0.25);
+  box-shadow: 0 0 15px rgba(167, 139, 250, 0.15);
+}
+
+.admin-tab-btn:active {
+  transform: scale(0.97);
 }
 
 .admin-pane {
@@ -5388,27 +5574,42 @@ const fillExample = (url) => {
 }
 
 .create-user-toggle-btn {
-  background: rgba(139, 92, 246, 0.15);
-  color: var(--color-violet);
-  border: 1px dashed rgba(139, 92, 246, 0.4);
-  padding: 8px 16px;
-  border-radius: 8px;
+  background: rgba(167, 139, 250, 0.1);
+  color: #c084fc;
+  border: 1px dashed rgba(167, 139, 250, 0.3);
+  padding: 10px 20px;
+  border-radius: 10px;
   font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .create-user-toggle-btn:hover {
-  background: rgba(139, 92, 246, 0.25);
+  background: rgba(167, 139, 250, 0.2);
+  border-color: #c084fc;
   border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(167, 139, 250, 0.15);
+}
+
+.create-user-toggle-btn:active {
+  transform: translateY(1px) scale(0.98);
 }
 
 .table-container {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
   overflow: hidden;
-  background: rgba(10, 11, 22, 0.4);
+  background: rgba(15, 17, 33, 0.3);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.table-container:hover {
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
 }
 
 .logs-table-container {
@@ -5451,33 +5652,40 @@ const fillExample = (url) => {
 .role-badge {
   font-size: 0.72rem;
   font-weight: 800;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
   display: inline-block;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 8px currentColor;
+  transition: all 0.3s ease;
 }
 
 .role-badge.admin {
-  background: rgba(244, 63, 94, 0.15);
-  color: var(--color-rose);
-  border: 1px solid rgba(244, 63, 94, 0.2);
+  background: rgba(244, 63, 94, 0.12);
+  color: #ff4d6d;
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.15);
 }
 
 .role-badge.super {
-  background: rgba(217, 70, 239, 0.15);
-  color: var(--color-fuchsia);
-  border: 1px solid rgba(217, 70, 239, 0.2);
+  background: rgba(217, 70, 239, 0.12);
+  color: #f472b6;
+  border: 1px solid rgba(217, 70, 239, 0.25);
+  box-shadow: 0 0 10px rgba(217, 70, 239, 0.15);
 }
 
 .role-badge.pro {
-  background: rgba(139, 92, 246, 0.15);
-  color: var(--color-violet);
-  border: 1px solid rgba(139, 92, 246, 0.2);
+  background: rgba(167, 139, 250, 0.12);
+  color: #c084fc;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.15);
 }
 
 .role-badge.user {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--color-emerald);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
 
 .role-badge-mini {
@@ -5507,6 +5715,44 @@ const fillExample = (url) => {
 .role-badge-mini.user {
   background: rgba(16, 185, 129, 0.1);
   color: var(--color-emerald);
+}
+
+.user-detail-panel {
+  background: rgba(15, 17, 33, 0.35) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  padding: 28px !important;
+  border-radius: 20px !important;
+  text-align: left !important;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25), inset 0 2px 4px rgba(255, 255, 255, 0.02) !important;
+  transition: all 0.3s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.user-detail-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--gradient-glow);
+}
+
+.role-update-section {
+  margin-top: 24px !important;
+  background: rgba(255, 255, 255, 0.01) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.1) !important;
+  border-radius: 14px !important;
+  padding: 20px !important;
+  transition: all 0.3s ease !important;
+}
+
+.role-update-section:hover {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-color: rgba(167, 139, 250, 0.35) !important;
+  box-shadow: 0 4px 15px rgba(167, 139, 250, 0.05) !important;
 }
 
 /* Benefits and Packages Layout */
