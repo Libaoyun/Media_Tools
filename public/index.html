@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='.9em' font-size='56'%3E🔥%3C/text%3E%3C/svg%3E">
+    <title>HotPot | 实时热门视频监测与学习分析系统</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- ── Sidebar ─────────────────────────── -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-fire-flame-curved logo-icon"></i>
+                <span class="logo-text">HotPot</span>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-platform="bilibili">
+                    <i class="fa-brands fa-bilibili nav-icon bili-color"></i>
+                    <span>哔哩哔哩 (B站)</span>
+                </button>
+                <button class="nav-btn" data-platform="douyin">
+                    <i class="fa-solid fa-music nav-icon douyin-color"></i>
+                    <span>抖音热点榜</span>
+                </button>
+                <button class="nav-btn" data-platform="youtube">
+                    <i class="fa-brands fa-youtube nav-icon yt-color"></i>
+                    <span>YouTube (油管)</span>
+                </button>
+                <button class="nav-btn" data-platform="tiktok">
+                    <i class="fa-brands fa-tiktok nav-icon tt-color"></i>
+                    <span>TikTok (海外)</span>
+                </button>
+                <button class="nav-btn" data-platform="twitter">
+                    <i class="fa-brands fa-x-twitter nav-icon tw-color"></i>
+                    <span>Twitter / X</span>
+                </button>
+                <button class="nav-btn" data-platform="xiaohongshu">
+                    <i class="fa-solid fa-bookmark nav-icon xhs-color"></i>
+                    <span>小红书热点</span>
+                </button>
+                <button class="nav-btn" data-platform="kuaishou">
+                    <i class="fa-solid fa-circle-play nav-icon ks-color"></i>
+                    <span>快手热门榜</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="settings-btn" class="footer-btn">
+                    <i class="fa-solid fa-gears"></i>
+                    <span>代理与网络设置</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ── Main Content ────────────────────── -->
+        <main class="main-content">
+
+            <!-- Header — never scrolls -->
+            <header class="content-header">
+                <div class="header-title">
+                    <h1 id="platform-title">哔哩哔哩</h1>
+                    <p id="platform-desc">实时监控B站最新爆款视频，助您掌握最新的创作风向</p>
+                </div>
+                <!-- Unified Search Bar -->
+                <div class="search-bar-container">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="search-input" maxlength="100" placeholder="输入关键词，全网模糊搜索视频...">
+                    <button id="search-btn">搜索</button>
+                </div>
+                <div class="view-switcher" role="group" aria-label="内容视图">
+                    <button class="view-switch-btn active" data-view="feed" title="视频榜单">
+                        <i class="fa-solid fa-border-all"></i>
+                        <span>榜单</span>
+                    </button>
+                    <button class="view-switch-btn" data-view="globe" title="热点地球">
+                        <i class="fa-solid fa-earth-asia"></i>
+                        <span>热点地球</span>
+                    </button>
+                </div>
+                <button id="refresh-btn" class="action-btn-refresh">
+                    <i class="fa-solid fa-arrows-rotate"></i> 刷新榜单
+                </button>
+
+                <!-- Cyber User Identity Card -->
+                <div class="user-identity-card" id="user-identity-card">
+                    <div class="user-info-group hidden" id="user-logged-in-box">
+                        <img id="user-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=demo" alt="Avatar" class="user-avatar">
+                        <div class="user-details">
+                            <div class="user-top-row">
+                                <span id="user-nickname" class="user-nickname">体验用户</span>
+                                <span id="user-role-badge" class="role-badge role-pro">PRO会员</span>
+                            </div>
+                            <div class="user-quota-row">
+                                <i class="fa-solid fa-cloud-arrow-down"></i>
+                                <span id="user-quota-text">今日下载配额: 5/5</span>
+                            </div>
+                        </div>
+                        <button id="auth-logout-btn" class="icon-btn-ghost" title="退出登录">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                        </button>
+                    </div>
+
+                    <div class="user-login-trigger" id="user-login-trigger">
+                        <button id="open-login-btn" class="cyber-btn-accent">
+                            <i class="fa-solid fa-shield-halved"></i> 登录 / 注册
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Category Filters — never scrolls -->
+            <div class="category-filters-container" id="category-filters-container">
+                <div class="filters-row">
+                    <span class="filter-label"><i class="fa-solid fa-list-ul"></i> 分区分类：</span>
+                    <div class="category-filters">
+                        <button class="filter-chip active" data-category="all">全部热门</button>
+                        <button class="filter-chip" data-category="kuso">鬼畜魔性</button>
+                        <button class="filter-chip" data-category="comedy">趣味搞笑</button>
+                        <button class="filter-chip" data-category="tech">科技前沿</button>
+                        <button class="filter-chip" data-category="fashion">时装穿搭</button>
+                        <button class="filter-chip" data-category="marketing">营销干货</button>
+                        <button class="filter-chip" data-category="animal">萌宠动物</button>
+                    </div>
+                </div>
+                <div class="filters-row" style="margin-top: 10px;">
+                    <span class="filter-label"><i class="fa-regular fa-calendar-days"></i> 发布时效：</span>
+                    <div class="time-filters">
+                        <button class="time-chip active" data-time="all">全部时间</button>
+                        <button class="time-chip" data-time="3days">最近3天</button>
+                        <button class="time-chip" data-time="7days">最近7天</button>
+                        <button class="time-chip" data-time="1month">最近1个月</button>
+                        <button class="time-chip" data-time="6months">最近半年</button>
+                    </div>
+                </div>
+            </div>
+
+            <section class="globe-view hidden" id="globe-view" aria-label="视频来源热点地球">
+                <div class="globe-stage" id="globe-stage"></div>
+                <div class="globe-topbar">
+                    <div>
+                        <span class="globe-eyebrow"><i class="fa-solid fa-satellite-dish"></i> GEO SIGNAL</span>
+                        <h2>视频热点城市分布</h2>
+                        <p>基于当前筛选条件的城市关键词索引量与内容地理识别</p>
+                    </div>
+                    <div class="globe-metrics">
+                        <div class="globe-metric"><strong id="geo-city-count">0</strong><span>热点城市</span></div>
+                        <div class="globe-metric"><strong id="geo-video-count">0</strong><span>城市关联量</span></div>
+                        <div class="globe-metric"><strong id="geo-coverage">内容</strong><span>数据方式</span></div>
+                    </div>
+                </div>
+                <aside class="hotspot-panel">
+                    <div class="hotspot-panel-header">
+                        <div>
+                            <span>城市热度排行</span>
+                            <small>点位大小和颜色均按视频数量</small>
+                        </div>
+                        <div class="hotspot-live"><span></span> LIVE</div>
+                    </div>
+                    <div class="hotspot-list" id="hotspot-list"></div>
+                    <div class="hotspot-legend">
+                        <span><i class="legend-dot low"></i>低</span>
+                        <span><i class="legend-dot medium"></i>中</span>
+                        <span><i class="legend-dot high"></i>高</span>
+                    </div>
+                </aside>
+                <div class="globe-empty hidden" id="globe-empty">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <h3>当前结果暂无可定位城市</h3>
+                    <p>尝试切换平台、扩大时效或搜索包含城市名称的热点。</p>
+                </div>
+                <div class="globe-hint"><i class="fa-solid fa-computer-mouse"></i> 拖动旋转 · 滚轮缩放 · 点击点位聚焦</div>
+            </section>
+
+            <!-- Scrollable content area -->
+            <div class="grid-scroll-area" id="grid-scroll-area">
+                <!-- Loading -->
+                <div id="loader" class="loader-container">
+                    <div class="neon-spinner"></div>
+                    <p>正在拉取最新首发爆款排行...</p>
+                </div>
+
+                <!-- Empty state -->
+                <div id="empty-state" class="empty-container hidden">
+                    <i class="fa-regular fa-folder-open empty-icon"></i>
+                    <h3>暂无数据</h3>
+                    <p>未能拉取到热门数据，请检查代理配置或刷新重试。</p>
+                </div>
+
+                <!-- Cards grid -->
+                <section class="cards-grid hidden" id="cards-grid"></section>
+
+                <!-- Infinite scroll loading spinner -->
+                <div id="infinite-loader" class="infinite-loader hidden">
+                    <div class="mini-spinner"></div>
+                    <span>正在加载更多视频...</span>
+                </div>
+
+                <!-- Bottom end hint -->
+                <div id="end-hint" class="end-hint hidden">
+                    <div class="end-hint-line"></div>
+                    <span id="end-hint-text">已加载全部数据（最多展示 100 条）</span>
+                    <div class="end-hint-line"></div>
+                </div>
+            </div>
+
+        </main>
+
+    </div>
+
+    <!-- ── Detail Drawer ────────────────────── -->
+    <aside class="detail-drawer hidden" id="detail-drawer">
+        <button id="close-drawer-btn" class="close-drawer-btn">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+
+        <div class="drawer-content">
+            <!-- Player -->
+            <div class="player-container">
+                <div id="video-player-wrapper" class="video-player-wrapper">
+                    <div class="player-placeholder">
+                        <i class="fa-solid fa-circle-play"></i>
+                        <p>选择视频开始播放与解析</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Meta -->
+            <div class="video-meta-section">
+                <span id="drawer-platform-badge" class="platform-badge">Bilibili</span>
+                <h2 id="drawer-video-title">正在加载视频标题...</h2>
+                <div class="author-row">
+                    <img id="drawer-author-avatar" src="https://api.dicebear.com/7.x/bottts/svg" alt="Avatar" class="author-avatar">
+                    <div class="author-info">
+                        <span id="drawer-author-name" class="author-name">创作者</span>
+                        <span class="author-sub">视频发布作者</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tools -->
+            <div class="action-tools-card">
+                <h3><i class="fa-solid fa-wand-magic-sparkles"></i> 极速抓取工具箱</h3>
+                <div class="tool-buttons">
+                    <button id="btn-copy-link" class="tool-btn">
+                        <i class="fa-regular fa-copy"></i> 复制原网页链接
+                    </button>
+                    <button id="btn-parse-stream" class="tool-btn highlight-btn">
+                        <i class="fa-solid fa-circle-nodes"></i> 提取无水印/MP4直链
+                    </button>
+                    <button id="btn-download-video" class="tool-btn hidden">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> 极速下载视频
+                    </button>
+                </div>
+                <div id="stream-url-box" class="stream-url-container hidden">
+                    <p class="stream-url-label">解析成功！直链地址：</p>
+                    <div class="stream-url-input-row">
+                        <input type="text" id="stream-url-input" readonly>
+                        <button id="btn-copy-stream"><i class="fa-regular fa-clipboard"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Insights -->
+            <div class="ai-insights-card">
+                <div class="ai-title-row">
+                    <i class="fa-solid fa-brain ai-brain-icon"></i>
+                    <h3>AI 拆条与脚本学习大师</h3>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-label">爆款领域定位</span>
+                    <div id="ai-category-badge" class="insight-badge">智能计算中...</div>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-label">核心脚本看点 / 黄金公式</span>
+                    <ul id="ai-highlights-list" class="highlights-list">
+                        <li>点击左侧"提取无水印/MP4直链"后启动AI智能梳理</li>
+                    </ul>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-label">二创/模仿学习行动建议</span>
+                    <p id="ai-recommendation-text" class="recommendation-text">
+                        分析爆款的节奏点和开头3秒的冲突点。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Settings Modal ───────────────────── -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-gears"></i> 代理与抓取参数设置</h2>
+                <button id="close-modal-btn" class="close-modal-btn-x">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="settings-desc">抓取 YouTube, TikTok 等海外平台需要网络代理。系统启动时会自动嗅探 Clash Verge 等本地代理端口。</p>
+                <div class="form-group">
+                    <label for="setting-proxy">HTTP/S 代理地址 (Proxy URL)</label>
+                    <input type="text" id="setting-proxy" placeholder="例如: http://127.0.0.1:7897">
+                    <small>支持 http://, socks5:// 协议。本地默认检测 7897 / 7890 端口。</small>
+                </div>
+                <div class="status-row">
+                    <span>当前代理连接状态：</span>
+                    <span id="proxy-status" class="proxy-status-badge inactive">未连接</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="modal-btn save-btn">保存并应用</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Popup Video Player Modal ─────────── -->
+    <div id="player-modal" class="modal-overlay hidden">
+        <div class="player-modal-box">
+            <button id="close-player-modal-btn" class="close-player-modal-btn">&times;</button>
+            <div class="player-modal-body">
+                <div id="modal-video-wrapper" class="modal-video-wrapper"></div>
+            </div>
+            <div class="player-modal-footer">
+                <div class="player-info-meta">
+                    <h3 id="modal-video-title">视频标题</h3>
+                    <p id="modal-video-author">作者</p>
+                </div>
+                <div class="player-action-tools">
+                    <button id="modal-sniff-btn" class="cyber-btn-secondary">
+                        <i class="fa-solid fa-bolt"></i> 极速嗅探无水印直链
+                    </button>
+                    <button id="modal-download-btn" class="cyber-btn-accent">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> 物理 MP4 下载
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Obsidian Cyber Dark Authentication Modal ─────────── -->
+    <div id="auth-modal" class="modal-overlay hidden">
+        <div class="auth-modal-box">
+            <div class="auth-modal-header">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login"><i class="fa-solid fa-right-to-bracket"></i> 用户登录</button>
+                    <button class="auth-tab" data-tab="register"><i class="fa-solid fa-user-plus"></i> 新用户注册</button>
+                </div>
+                <button id="close-auth-modal-btn" class="close-modal-btn-x">&times;</button>
+            </div>
+
+            <div class="auth-modal-body">
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form">
+                    <div class="form-group-cyber">
+                        <label><i class="fa-solid fa-user"></i> 用户名 / 电子邮箱</label>
+                        <input type="text" id="login-username" placeholder="请输入用户名或邮箱" required>
+                    </div>
+                    <div class="form-group-cyber">
+                        <label><i class="fa-solid fa-lock"></i> 登录密码</label>
+                        <input type="password" id="login-password" placeholder="请输入密码" required>
+                    </div>
+                    <div class="auth-message-box hidden" id="login-msg-box"></div>
+                    <button type="submit" class="cyber-btn-submit">
+                        <i class="fa-solid fa-key"></i> 立即登入平台
+                    </button>
+                    <div class="auth-divider"><span>或选择免密试用</span></div>
+                    <button type="button" id="btn-quick-demo" class="cyber-btn-demo">
+                        <i class="fa-solid fa-bolt-lightning"></i> ⚡ 演示账号一秒免密登录
+                    </button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="register-form" class="auth-form hidden">
+                    <div class="form-group-cyber">
+                        <label><i class="fa-solid fa-user-astronaut"></i> 用户名</label>
+                        <input type="text" id="reg-username" placeholder="设置您的用户名" required>
+                    </div>
+                    <div class="form-group-cyber">
+                        <label><i class="fa-solid fa-id-card"></i> 昵称</label>
+                        <input type="text" id="reg-nickname" placeholder="显示的个人昵称">
+                    </div>
+                    <div class="form-group-cyber">
+                        <label><i class="fa-solid fa-lock"></i> 设置密码</label>
+                        <input type="password" id="reg-password" placeholder="请输入登录密码" required>
+                    </div>
+                    <div class="auth-message-box hidden" id="reg-msg-box"></div>
+                    <button type="submit" class="cyber-btn-submit">
+                        <i class="fa-solid fa-user-check"></i> 完成注册并登录
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/vendor/globe.gl.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

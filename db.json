@@ -1,0 +1,63 @@
+{
+  "users": [
+    {
+      "username": "mediaAdmin",
+      "password": "4bb92dbfdc26ea40ebadc9e4b4908f2502a71125531f53794462a0e9b2cb4889",
+      "role": "admin",
+      "nickname": "系统管理员",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
+      "bio": "HotPot & MediaTools 联合系统最高管理员",
+      "usage": {}
+    },
+    {
+      "username": "mediaPro",
+      "password": "7a624d6ebac69108d548f105885f1f141d619a1f3dba44df55330a7680f6ee95",
+      "role": "pro",
+      "nickname": "PRO尊贵会员",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=pro",
+      "bio": "拥有无限制无水印极速下载与AI智能拆条特权",
+      "usage": {}
+    },
+    {
+      "username": "demo@hotpot.com",
+      "password": "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f",
+      "role": "user",
+      "nickname": "体验用户",
+      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=demo",
+      "bio": "免费体验账户，每日包含 5 次无水印下载额度",
+      "usage": {
+        "2026-08-02": 1
+      }
+    }
+  ],
+  "logs": [
+    {
+      "timestamp": "2026-08-02T15:17:00.885Z",
+      "username": "demo@hotpot.com",
+      "role": "user",
+      "action": "解析无水印视频",
+      "targetUrl": "https://www.bilibili.com/video/BV1GJ411x7h7/"
+    },
+    {
+      "timestamp": "2026-08-02T15:17:02.056Z",
+      "username": "demo@hotpot.com",
+      "role": "user",
+      "action": "下载物理视频",
+      "targetUrl": "https://images.unsplash.com/photo-1542751371-adc38448a05e"
+    }
+  ],
+  "sessions": {
+    "token_demo_msby1icp": {
+      "username": "demo@hotpot.com",
+      "expireAt": 1785856620841
+    },
+    "token_demo_msby3xb3": {
+      "username": "demo@hotpot.com",
+      "expireAt": 1785856733535
+    },
+    "token_demo_msby40ks": {
+      "username": "demo@hotpot.com",
+      "expireAt": 1785856737772
+    }
+  }
+}
