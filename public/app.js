@@ -1,1347 +1,1242 @@
-/* ──────────────────────────────────────────────
-   HotPot — Frontend Application Logic
-   ────────────────────────────────────────────── */
+/**
+ * HotPot — Global Multimedia Radar & Observatory
+ * Core Application Controller (v2.6)
+ */
 
-// ── State ──────────────────────────────────────
-const LAZY_PAGE_SIZE = 30;
-
-const state = {
-    activePlatform: 'bilibili',
-    activeCategory: 'all',
-    activeTimeRange: 'all',
-    searchQuery: '',
-    searchPage: 1,
-    displayLimit: LAZY_PAGE_SIZE,
-    isMoreLoading: false,
-    hasMore: true,
-    videoList: [],
-    selectedVideo: null,
-    requestSequence: 0,
-    parseSequence: 0,
-    activeView: 'feed',
-    globe: null,
-    globeResizeObserver: null,
-    geoSignals: [],
-    geoSignalKey: '',
-    geoSignalSequence: 0,
-    geoAbortController: null,
-    listAbortController: null,
-    settings: { proxy: '' },
-    currentUser: null,
-    token: localStorage.getItem('hotpot_token') || ''
-};
-
-// ── Platform Themes ────────────────────────────
-const platformThemes = {
-    bilibili: {
-        title: '哔哩哔哩',
-        desc: '实时监控B站全站及分区首发爆款榜单，一键拆解流量密码',
-        accent: '#ff6699',
-        glow: 'rgba(255,102,153,0.22)'
-    },
-    douyin: {
-        title: '抖音热点榜',
-        desc: '实时同步抖音热搜话题与热度指数，点击话题直通相关解析视频',
-        accent: '#00f2fe',
-        glow: 'rgba(0,242,254,0.20)'
-    },
-    youtube: {
-        title: 'YouTube Trending',
-        desc: '追踪全球最大视频平台的最新趋势（需开启科学上网代理）',
-        accent: '#ff3344',
-        glow: 'rgba(255,51,68,0.22)'
-    },
-    tiktok: {
-        title: 'TikTok Explore',
-        desc: '直击海外短视频最热流行风向，抓取爆火内容（需代理）',
-        accent: '#00f2fe',
-        glow: 'rgba(0,242,254,0.20)'
-    },
-    twitter: {
-        title: 'Twitter / X Trends',
-        desc: '获取X平台全球最新热门话题排行，洞悉突发国际焦点（需代理）',
-        accent: '#e2e8f0',
-        glow: 'rgba(226,232,240,0.15)'
-    },
-    xiaohongshu: {
-        title: '小红书热点',
-        desc: '抓取小红书热门内容与种草爆款视频，挖掘笔记流量密码',
-        accent: '#ff2442',
-        glow: 'rgba(255,36,66,0.22)'
-    },
-    kuaishou: {
-        title: '快手热门榜',
-        desc: '实时同步快手老铁社区最火爆的热门榜单视频',
-        accent: '#ff5000',
-        glow: 'rgba(255,80,0,0.22)'
-    }
-};
-
-// ── DOM Cache ─────────────────────────────────
-const el = {
-    navButtons:        document.querySelectorAll('.nav-btn'),
-    filterChips:       document.querySelectorAll('.filter-chip'),
-    timeChips:         document.querySelectorAll('.time-chip'),
-    viewSwitchButtons: document.querySelectorAll('.view-switch-btn'),
-    platformTitle:     document.getElementById('platform-title'),
-    platformDesc:      document.getElementById('platform-desc'),
-    refreshBtn:        document.getElementById('refresh-btn'),
-    loader:            document.getElementById('loader'),
-    emptyState:        document.getElementById('empty-state'),
-    cardsGrid:         document.getElementById('cards-grid'),
-    filtersContainer:  document.getElementById('category-filters-container'),
-    gridScrollArea:    document.getElementById('grid-scroll-area'),
-    infiniteLoader:    document.getElementById('infinite-loader'),
-    endHint:           document.getElementById('end-hint'),
-    endHintText:       document.getElementById('end-hint-text'),
-    globeView:         document.getElementById('globe-view'),
-    globeStage:        document.getElementById('globe-stage'),
-    globeEmpty:        document.getElementById('globe-empty'),
-    hotspotList:       document.getElementById('hotspot-list'),
-    geoCityCount:      document.getElementById('geo-city-count'),
-    geoVideoCount:     document.getElementById('geo-video-count'),
-    geoCoverage:       document.getElementById('geo-coverage'),
-    // Search Bar
-    searchInput:       document.getElementById('search-input'),
-    searchBtn:         document.getElementById('search-btn'),
-    // Drawer
-    detailDrawer:      document.getElementById('detail-drawer'),
-    closeDrawerBtn:    document.getElementById('close-drawer-btn'),
-    videoPlayerWrapper:document.getElementById('video-player-wrapper'),
-    drawerPlatformBadge:document.getElementById('drawer-platform-badge'),
-    drawerVideoTitle:  document.getElementById('drawer-video-title'),
-    drawerAuthorAvatar:document.getElementById('drawer-author-avatar'),
-    drawerAuthorName:  document.getElementById('drawer-author-name'),
-    btnCopyLink:       document.getElementById('btn-copy-link'),
-    btnParseStream:    document.getElementById('btn-parse-stream'),
-    btnDownloadVideo:  document.getElementById('btn-download-video'),
-    streamUrlBox:      document.getElementById('stream-url-box'),
-    streamUrlInput:    document.getElementById('stream-url-input'),
-    btnCopyStream:     document.getElementById('btn-copy-stream'),
-    aiCategoryBadge:   document.getElementById('ai-category-badge'),
-    aiHighlightsList:  document.getElementById('ai-highlights-list'),
-    aiRecommendText:   document.getElementById('ai-recommendation-text'),
-    // Settings modal
-    settingsBtn:       document.getElementById('settings-btn'),
-    settingsModal:     document.getElementById('settings-modal'),
-    closeModalBtn:     document.getElementById('close-modal-btn'),
-    settingProxy:      document.getElementById('setting-proxy'),
-    proxyStatus:       document.getElementById('proxy-status'),
-    btnSaveSettings:   document.getElementById('btn-save-settings'),
-    // Popup player modal
-    playerModal:       document.getElementById('player-modal'),
-    closePlayerModal:  document.getElementById('close-player-modal-btn'),
-    modalVideoWrapper: document.getElementById('modal-video-wrapper'),
-    modalVideoTitle:   document.getElementById('modal-video-title'),
-    modalVideoAuthor:  document.getElementById('modal-video-author'),
-};
-
-// ── Init ──────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    loadSettings();
-    bindEvents();
-    fetchTrends();
-});
 
-// ── Settings ──────────────────────────────────
-async function loadSettings() {
-    try {
-        const res  = await fetch('/api/settings');
-        const data = await res.json();
-        if (data.success) {
-            state.settings.proxy = data.proxy;
-            el.settingProxy.value = data.proxy;
-            updateProxyBadge(data.status);
-        }
-    } catch (e) { console.error('Settings load failed:', e); }
-}
+    // ── Application State ───────────────────────────────────────────
+    const state = {
+        platform: 'bilibili',
+        category: 'all',
+        timeRange: 'all',
+        searchQuery: '',
+        metricMode: 'single', // 'single' (单视频热度) | 'topic' (全网话题事件热度)
+        view: 'feed',         // 'feed' | 'globe'
+        currentTopic: null,   // active topic in drilldown
+        
+        // Single Video Feed Data
+        allVideos: [],
+        displayedVideos: [],
+        activeVideo: null,
+        
+        // Topic Feed Data
+        topicsList: [],
 
-function updateProxyBadge(status) {
-    if (status === 'Connected') {
-        el.proxyStatus.textContent = '已连接本地代理';
-        el.proxyStatus.className = 'proxy-status-badge active';
-    } else {
-        el.proxyStatus.textContent = '未连接（海外平台可能失败）';
-        el.proxyStatus.className = 'proxy-status-badge inactive';
-    }
-}
+        // Geo Radar Data
+        geoHotspots: [],
+        geoMetadata: null,
 
-async function saveSettings() {
-    const proxy = el.settingProxy.value.trim();
-    try {
-        const res  = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ proxy })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || '代理配置保存失败');
-        if (data.success) {
-            state.settings.proxy = data.proxy;
-            showToast('代理配置保存成功！');
-            el.settingsModal.classList.add('hidden');
-            loadSettings();
-        }
-    } catch (e) { showToast(e.message || '保存失败，请检查后端状态。'); }
-}
+        // User Session
+        user: null,
 
-// ── Event Binding ─────────────────────────────
-function bindEvents() {
-    // Platform nav
-    el.navButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            el.navButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            const platform = btn.dataset.platform;
-            state.activePlatform = platform;
-            state.activeCategory = 'all';
-            state.searchQuery = '';
-            el.searchInput.value = '';
-
-            const theme = platformThemes[platform];
-            applyTheme(theme);
-
-            el.platformTitle.textContent = theme.title;
-            el.platformDesc.textContent  = theme.desc;
-
-            // Categories are now visible for all platforms
-            el.filtersContainer.classList.remove('hidden');
-            el.filterChips.forEach(c => {
-                c.classList.toggle('active', c.dataset.category === 'all');
-            });
-
-            closeDrawer();
-            fetchTrends();
-        });
-    });
-
-    // Category filters
-    el.filterChips.forEach(chip => {
-        chip.addEventListener('click', () => {
-            el.filterChips.forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            state.activeCategory = chip.dataset.category;
-            fetchTrends();
-        });
-    });
-
-    // Time filters
-    el.timeChips.forEach(chip => {
-        chip.addEventListener('click', () => {
-            el.timeChips.forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            state.activeTimeRange = chip.dataset.time;
-            fetchTrends();
-        });
-    });
-
-    el.viewSwitchButtons.forEach(button => {
-        button.addEventListener('click', () => setActiveView(button.dataset.view));
-    });
-
-    // Search Actions
-    const performSearch = () => {
-        const query = el.searchInput.value.trim();
-        if (!query) {
-            state.searchQuery = '';
-            state.activeCategory = 'all';
-            el.filterChips.forEach(c => {
-                c.classList.toggle('active', c.dataset.category === 'all');
-            });
-            fetchTrends();
-            return;
-        }
-        state.searchQuery = query;
-        fetchTrends();
+        // Infinite Scroll
+        page: 1,
+        pageSize: 16,
+        isLoading: false,
+        hasMore: true
     };
 
-    el.searchBtn.addEventListener('click', performSearch);
-    el.searchInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') performSearch();
-    });
+    // ── DOM References ──────────────────────────────────────────────
+    const dom = {
+        // Navigation & Platforms
+        navBtns: document.querySelectorAll('.nav-btn'),
+        platformTitle: document.getElementById('platform-title'),
+        platformStatusBadge: document.getElementById('platform-status-badge'),
+        sidebarProxyDot: document.getElementById('sidebar-proxy-dot'),
 
-    // Refresh
-    el.refreshBtn.addEventListener('click', () => fetchTrends(true));
+        // Search & Metric Toggle
+        searchInput: document.getElementById('search-input'),
+        searchBtn: document.getElementById('search-btn'),
+        searchClearBtn: document.getElementById('search-clear-btn'),
+        btnMetricSingle: document.getElementById('btn-metric-single'),
+        btnMetricTopic: document.getElementById('btn-metric-topic'),
 
-    // Drawer close
-    el.closeDrawerBtn.addEventListener('click', closeDrawer);
+        // Views & Layout
+        viewSwitchBtns: document.querySelectorAll('.view-switch-btn'),
+        refreshBtn: document.getElementById('refresh-btn'),
+        categoryFiltersContainer: document.getElementById('category-filters-container'),
+        filterChips: document.querySelectorAll('.filter-chip'),
+        timeChips: document.querySelectorAll('.time-chip'),
+        gridScrollArea: document.getElementById('grid-scroll-area'),
+        cardsGrid: document.getElementById('cards-grid'),
+        topicsGrid: document.getElementById('topics-grid'),
+        
+        // Topic Drilldown View
+        topicDrilldownView: document.getElementById('topic-drilldown-view'),
+        btnBackToTopics: document.getElementById('btn-back-to-topics'),
+        drilldownTopicTag: document.getElementById('drilldown-topic-tag'),
+        drilldownTopicTitle: document.getElementById('drilldown-topic-title'),
+        drilldownTopicMeta: document.getElementById('drilldown-topic-meta'),
+        drilldownCardsGrid: document.getElementById('drilldown-cards-grid'),
 
-    // Copy original link
-    el.btnCopyLink.addEventListener('click', async () => {
-        if (!state.selectedVideo) return;
-        await copyText(state.selectedVideo.url, '原链接已复制！');
-    });
+        // Globe Radar
+        globeView: document.getElementById('globe-view'),
+        globeStage: document.getElementById('globe-stage'),
+        globeEmpty: document.getElementById('globe-empty'),
+        hotspotList: document.getElementById('hotspot-list'),
+        geoCityCount: document.getElementById('geo-city-count'),
+        geoVideoCount: document.getElementById('geo-video-count'),
+        geoCoverage: document.getElementById('geo-coverage'),
 
-    // Parse stream
-    el.btnParseStream.addEventListener('click', parseVideoLink);
+        // States
+        loader: document.getElementById('loader'),
+        emptyState: document.getElementById('empty-state'),
+        infiniteLoader: document.getElementById('infinite-loader'),
+        endHint: document.getElementById('end-hint'),
+        endHintText: document.getElementById('end-hint-text'),
 
-    // Copy stream URL
-    el.btnCopyStream.addEventListener('click', async () => {
-        const url = el.streamUrlInput.value;
-        if (url) await copyText(url, '直链地址已复制！');
-    });
+        // Detail Drawer
+        detailDrawer: document.getElementById('detail-drawer'),
+        closeDrawerBtn: document.getElementById('close-drawer-btn'),
+        drawerPlayerWrapper: document.getElementById('video-player-wrapper'),
+        drawerDanmakuScreen: document.getElementById('drawer-danmaku-screen'),
+        drawerDanmakuToggle: document.getElementById('drawer-danmaku-toggle'),
+        drawerDanmakuInput: document.getElementById('drawer-danmaku-input'),
+        drawerDanmakuSend: document.getElementById('drawer-danmaku-send'),
+        drawerPlatformBadge: document.getElementById('drawer-platform-badge'),
+        drawerOpenOriginBtn: document.getElementById('drawer-open-origin-btn'),
+        drawerVideoTitle: document.getElementById('drawer-video-title'),
+        drawerAuthorAvatar: document.getElementById('drawer-author-avatar'),
+        drawerAuthorName: document.getElementById('drawer-author-name'),
+        btnCopyLink: document.getElementById('btn-copy-link'),
+        btnParseStream: document.getElementById('btn-parse-stream'),
+        btnDownloadVideo: document.getElementById('btn-download-video'),
+        streamUrlBox: document.getElementById('stream-url-box'),
+        streamUrlInput: document.getElementById('stream-url-input'),
+        btnCopyStream: document.getElementById('btn-copy-stream'),
+        aiCategoryBadge: document.getElementById('ai-category-badge'),
+        aiHighlightsList: document.getElementById('ai-highlights-list'),
+        aiRecommendationText: document.getElementById('ai-recommendation-text'),
 
-    // Settings modal
-    el.settingsBtn.addEventListener('click', () => el.settingsModal.classList.remove('hidden'));
-    el.closeModalBtn.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
-    el.settingsModal.addEventListener('click', e => {
-        if (e.target === el.settingsModal) el.settingsModal.classList.add('hidden');
-    });
-    el.btnSaveSettings.addEventListener('click', saveSettings);
+        // Popup Player Modal
+        playerModal: document.getElementById('player-modal'),
+        closePlayerModalBtn: document.getElementById('close-player-modal-btn'),
+        modalPlatformBadge: document.getElementById('modal-platform-badge'),
+        modalVideoTitle: document.getElementById('modal-video-title'),
+        modalOpenOriginBtn: document.getElementById('modal-open-origin-btn'),
+        modalVideoWrapper: document.getElementById('modal-video-wrapper'),
+        modalDanmakuScreen: document.getElementById('modal-danmaku-screen'),
+        modalDanmakuToggle: document.getElementById('modal-danmaku-toggle'),
+        modalDanmakuInput: document.getElementById('modal-danmaku-input'),
+        modalDanmakuSend: document.getElementById('modal-danmaku-send'),
+        modalDanmakuCount: document.getElementById('modal-danmaku-count'),
+        modalVideoAuthor: document.getElementById('modal-video-author'),
+        modalVideoPlayCount: document.getElementById('modal-video-play-count'),
+        modalCopyLinkBtn: document.getElementById('modal-copy-link-btn'),
+        modalSniffBtn: document.getElementById('modal-sniff-btn'),
+        modalDownloadBtn: document.getElementById('modal-download-btn'),
 
-    // Popup player modal close
-    el.closePlayerModal.addEventListener('click', closePlayerModal);
-    el.playerModal.addEventListener('click', e => {
-        if (e.target === el.playerModal) closePlayerModal();
-    });
+        // Settings Modal
+        settingsBtn: document.getElementById('settings-btn'),
+        settingsModal: document.getElementById('settings-modal'),
+        closeModalBtn: document.getElementById('close-modal-btn'),
+        settingProxy: document.getElementById('setting-proxy'),
+        btnSaveSettings: document.getElementById('btn-save-settings'),
+        proxyStatus: document.getElementById('proxy-status'),
+        proxyPills: document.querySelectorAll('.proxy-pill-btn'),
 
-    // Keyboard ESC
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-            if (!el.playerModal.classList.contains('hidden')) {
-                closePlayerModal();
-            } else if (!el.settingsModal.classList.contains('hidden')) {
-                el.settingsModal.classList.add('hidden');
-            } else {
-                closeDrawer();
+        // Auth Modal & User UI
+        userIdentityCard: document.getElementById('user-identity-card'),
+        userLoggedInBox: document.getElementById('user-logged-in-box'),
+        userLoginTrigger: document.getElementById('user-login-trigger'),
+        openLoginBtn: document.getElementById('open-login-btn'),
+        authLogoutBtn: document.getElementById('auth-logout-btn'),
+        userAvatar: document.getElementById('user-avatar'),
+        userNickname: document.getElementById('user-nickname'),
+        userRoleBadge: document.getElementById('user-role-badge'),
+
+        authModal: document.getElementById('auth-modal'),
+        closeAuthModalBtn: document.getElementById('close-auth-modal-btn'),
+        btnRoleAdmin: document.getElementById('btn-role-admin'),
+        btnRolePro: document.getElementById('btn-role-pro'),
+        btnRoleDemo: document.getElementById('btn-role-demo'),
+        authTabs: document.querySelectorAll('.auth-tab'),
+        loginForm: document.getElementById('login-form'),
+        registerForm: document.getElementById('register-form'),
+        loginUsername: document.getElementById('login-username'),
+        loginPassword: document.getElementById('login-password'),
+        loginMsgBox: document.getElementById('login-msg-box'),
+        regUsername: document.getElementById('reg-username'),
+        regNickname: document.getElementById('reg-nickname'),
+        regPassword: document.getElementById('reg-password'),
+        regMsgBox: document.getElementById('reg-msg-box'),
+
+        // Toast Container
+        toastContainer: document.getElementById('toast-container')
+    };
+
+    const PLATFORM_CONFIG = {
+        bilibili:    { name: '哔哩哔哩', color: '#fb7299', glow: 'rgba(251,114,153,0.3)', badge: 'B站全站热门' },
+        douyin:      { name: '抖音热点', color: '#22d3ee', glow: 'rgba(34,211,238,0.3)', badge: '短视频风向标' },
+        youtube:     { name: 'YouTube', color: '#ff0033', glow: 'rgba(255,0,51,0.3)', badge: '全球顶流视频' },
+        tiktok:      { name: 'TikTok', color: '#00f2fe', glow: 'rgba(0,242,254,0.3)', badge: '海外现象级趋势' },
+        twitter:     { name: 'Twitter / X', color: '#38bdf8', glow: 'rgba(56,189,248,0.3)', badge: '全球即时话题' },
+        xiaohongshu: { name: '小红书', color: '#ff2442', glow: 'rgba(255,36,66,0.3)', badge: '爆款生活笔记' },
+        kuaishou:    { name: '快手热门', color: '#ff5000', glow: 'rgba(255,80,0,0.3)', badge: '国民热度精选' }
+    };
+
+    // ── High Performance Danmaku Engine ─────────────────────────────
+    class DanmakuEngine {
+        constructor() {
+            this.active = true;
+            this.timers = [];
+            this.sampleDanmakus = [
+                '太强了这个名场面！', '全体起立！！！', '前方核能预警 ⚡', '这播放量真的封神了',
+                '哈哈哈哈哈笑到满地找头', '这就是艺术！', '好绝的运镜和剪辑', '亿遍打卡！',
+                '原汁原味太爽了', '2025还在看', '神级卡点直接起飞', '膝盖收下吧！'
+            ];
+        }
+
+        start(containerEl) {
+            this.stop();
+            if (!containerEl) return;
+            containerEl.innerHTML = '';
+            
+            // Emit continuous organic danmakus
+            const intervalId = setInterval(() => {
+                if (!this.active || document.hidden) return;
+                const text = this.sampleDanmakus[Math.floor(Math.random() * this.sampleDanmakus.length)];
+                this.emit(containerEl, text, false);
+            }, 1800);
+            this.timers.push(intervalId);
+        }
+
+        emit(containerEl, text, isUser = false) {
+            if (!containerEl) return;
+            const el = document.createElement('div');
+            el.className = `danmaku-item ${isUser ? 'is-user' : ''}`;
+            el.textContent = text;
+            
+            const topPercent = Math.floor(Math.random() * 65) + 10;
+            el.style.top = `${topPercent}%`;
+            
+            const duration = Math.floor(Math.random() * 3) + (isUser ? 6 : 7);
+            el.style.animationDuration = `${duration}s`;
+            
+            if (!isUser) {
+                const styles = ['hot', 'cool', 'glow', ''];
+                const chosen = styles[Math.floor(Math.random() * styles.length)];
+                if (chosen) el.classList.add(chosen);
             }
-        }
-    });
 
-    // Scroll container scroll listener for infinite load
-    el.gridScrollArea.addEventListener('scroll', () => {
-        if (state.isMoreLoading || !state.hasMore) return;
-
-        const { scrollTop, scrollHeight, clientHeight } = el.gridScrollArea;
-        // Trigger load when within 80px of bottom
-        if (scrollHeight - scrollTop - clientHeight < 80) {
-            if (state.searchQuery) {
-                loadMoreSearch();
-            } else {
-                loadMoreTrendsLocal();
-            }
-        }
-    });
-}
-
-function applyTheme(theme) {
-    const root = document.documentElement;
-    root.style.setProperty('--accent', theme.accent);
-    root.style.setProperty('--glow',   theme.glow);
-}
-
-function setActiveView(view) {
-    if (!['feed', 'globe'].includes(view)) return;
-    state.activeView = view;
-    el.viewSwitchButtons.forEach(button => {
-        button.classList.toggle('active', button.dataset.view === view);
-    });
-
-    const showGlobe = view === 'globe';
-    el.globeView.classList.toggle('hidden', !showGlobe);
-    el.gridScrollArea.classList.toggle('hidden', showGlobe);
-    if (showGlobe) {
-        initGlobe();
-        updateGlobeFromVideos();
-        loadGeoHotspots();
-    } else if (state.videoList.length > 0) {
-        hideLoader();
-    }
-}
-
-function initGlobe() {
-    if (state.globe || typeof Globe !== 'function') {
-        if (typeof Globe !== 'function') {
-            el.globeEmpty.classList.remove('hidden');
-            el.globeEmpty.querySelector('h3').textContent = '3D 地球引擎加载失败';
-        }
-        return;
-    }
-
-    try {
-        state.globe = Globe()(el.globeStage)
-            .globeImageUrl('/vendor/earth-dark.jpg')
-            .backgroundImageUrl('/vendor/night-sky.png')
-            .backgroundColor('#030509')
-            .showAtmosphere(true)
-            .atmosphereColor('#2dd4bf')
-            .atmosphereAltitude(0.12)
-            .pointLat('lat')
-            .pointLng('lng')
-            .pointAltitude(d => 0.015 + d.intensity * 0.07)
-            .pointRadius(d => 0.18 + d.intensity * 0.52)
-            .pointColor('color')
-            .pointResolution(18)
-            .pointsMerge(false)
-            .pointLabel(d => `
-                <div class="globe-point-label">
-                    <strong>${escapeHtml(d.city)}</strong> · ${escapeHtml(d.country)}
-                    <span>${d.count} 条视频 · 总热度 ${formatCompactNumber(d.totalHeat)}</span>
-                </div>
-            `)
-            .onPointClick(point => focusHotspot(point))
-            .ringsData([])
-            .ringLat('lat')
-            .ringLng('lng')
-            .ringColor(d => () => d.color)
-            .ringMaxRadius(d => 1.2 + d.intensity * 2.8)
-            .ringPropagationSpeed(d => 0.45 + d.intensity * 0.8)
-            .ringRepeatPeriod(d => 900 + (1 - d.intensity) * 900);
-
-        state.globe.pointOfView({ lat: 27, lng: 108, altitude: 2.15 }, 0);
-        const controls = state.globe.controls();
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.28;
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.08;
-
-        const resize = () => {
-            if (!state.globe || !el.globeStage.clientWidth || !el.globeStage.clientHeight) return;
-            state.globe.width(el.globeStage.clientWidth).height(el.globeStage.clientHeight);
-        };
-        state.globeResizeObserver = new ResizeObserver(resize);
-        state.globeResizeObserver.observe(el.globeStage);
-        requestAnimationFrame(resize);
-    } catch (error) {
-        console.error('Globe initialization failed:', error);
-        el.globeEmpty.classList.remove('hidden');
-        el.globeEmpty.querySelector('h3').textContent = '当前浏览器无法初始化 WebGL 地球';
-    }
-}
-
-function aggregateVideoHotspots(videos) {
-    const byCity = new Map();
-    let locatedVideos = 0;
-
-    videos.forEach(video => {
-        if (!video.geo || !Number.isFinite(Number(video.geo.lat)) || !Number.isFinite(Number(video.geo.lng))) return;
-        locatedVideos += 1;
-        const key = `${video.geo.country}:${video.geo.city}`;
-        const hotspot = byCity.get(key) || {
-            city: video.geo.city,
-            country: video.geo.country,
-            lat: Number(video.geo.lat),
-            lng: Number(video.geo.lng),
-            count: 0,
-            totalHeat: 0,
-            videos: []
-        };
-        hotspot.count += 1;
-        hotspot.totalHeat += Number(video.playRaw || 0);
-        if (hotspot.videos.length < 3) hotspot.videos.push(video.title);
-        byCity.set(key, hotspot);
-    });
-
-    const hotspots = [...byCity.values()].sort((a, b) =>
-        b.count - a.count || b.totalHeat - a.totalHeat
-    );
-    const maxCount = Math.max(1, ...hotspots.map(item => item.count));
-    hotspots.forEach(item => {
-        item.intensity = Math.sqrt(item.count / maxCount);
-        item.color = item.intensity >= 0.72
-            ? '#fb3f6c'
-            : (item.intensity >= 0.42 ? '#facc15' : '#22d3ee');
-    });
-    return { hotspots, locatedVideos };
-}
-
-function getGeoFilterKey() {
-    return JSON.stringify({
-        platform: state.activePlatform,
-        category: state.activeCategory || 'all',
-        timeRange: state.activeTimeRange,
-        query: state.searchQuery
-    });
-}
-
-function normalizeHotspotIntensity(hotspots) {
-    const counts = hotspots.map(item => Number(item.count || 0));
-    const heats = hotspots.map(item => Number(item.totalHeat || 0));
-    const minCount = Math.min(...counts, 0);
-    const maxCount = Math.max(1, ...counts);
-    const minHeat = Math.min(...heats, 0);
-    const maxHeat = Math.max(1, ...heats);
-    const countSpread = maxCount - minCount;
-    const heatSpread = maxHeat - minHeat;
-    return hotspots.map(item => {
-        const countScore = countSpread
-            ? (Number(item.count || 0) - minCount) / countSpread
-            : 1;
-        const heatScore = heatSpread
-            ? (Number(item.totalHeat || 0) - minHeat) / heatSpread
-            : countScore;
-        // 搜索索引量达到平台上限时，以样本热度打破并列，避免所有城市视觉权重相同。
-        const baseScore = item.countCapped || !countSpread
-            ? heatScore
-            : countScore * 0.82 + heatScore * 0.18;
-        const intensity = 0.12 + Math.sqrt(Math.max(0, baseScore)) * 0.88;
-        return {
-            ...item,
-            intensity,
-            color: intensity >= 0.72 ? '#fb3f6c' : (intensity >= 0.42 ? '#facc15' : '#22d3ee')
-        };
-    });
-}
-
-async function loadGeoHotspots() {
-    const key = getGeoFilterKey();
-    if (state.geoSignalKey === key && state.geoSignals.length > 0) return;
-    if (state.geoAbortController) state.geoAbortController.abort();
-    const abortController = new AbortController();
-    const sequence = ++state.geoSignalSequence;
-    state.geoAbortController = abortController;
-    el.globeView.classList.add('is-loading');
-
-    const params = new URLSearchParams({
-        platform: state.activePlatform,
-        category: state.activeCategory || 'all',
-        timeRange: state.activeTimeRange,
-        query: state.searchQuery
-    });
-    try {
-        const response = await fetch(`/api/geo-hotspots?${params}`, { signal: abortController.signal });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || '城市热点索引加载失败');
-        if (sequence !== state.geoSignalSequence || key !== getGeoFilterKey()) return;
-        state.geoSignals = normalizeHotspotIntensity(data.list || []);
-        state.geoSignalKey = key;
-        updateGlobeFromVideos();
-    } catch (error) {
-        if (error.name !== 'AbortError') {
-            console.error('Geo hotspots failed:', error);
-            if (state.activeView === 'globe') showToast('城市索引暂不可用，已展示内容识别结果。');
-        }
-    } finally {
-        if (sequence === state.geoSignalSequence) el.globeView.classList.remove('is-loading');
-    }
-}
-
-function updateGlobeFromVideos() {
-    const inferred = aggregateVideoHotspots(state.videoList);
-    const useSignals = state.geoSignalKey === getGeoFilterKey() && state.geoSignals.length > 0;
-    const hotspots = useSignals ? state.geoSignals : inferred.hotspots;
-    const locatedVideos = useSignals
-        ? hotspots.reduce((sum, item) => sum + Number(item.count || 0), 0)
-        : inferred.locatedVideos;
-    const hasCappedSignals = useSignals && hotspots.some(item => item.countCapped);
-    const coverage = state.videoList.length ? locatedVideos / state.videoList.length : 0;
-    el.geoCityCount.textContent = hotspots.length;
-    el.geoVideoCount.textContent = `${formatCompactNumber(locatedVideos)}${hasCappedSignals ? '+' : ''}`;
-    el.geoCoverage.textContent = useSignals ? '索引' : `${Math.round(coverage * 100)}%`;
-    el.globeEmpty.classList.toggle('hidden', hotspots.length > 0);
-    if (hotspots.length === 0) {
-        el.globeEmpty.querySelector('h3').textContent = '当前结果暂无可定位城市';
-        el.globeEmpty.querySelector('p').textContent = '尝试切换平台、扩大时效或搜索包含城市名称的热点。';
-    }
-
-    el.hotspotList.innerHTML = '';
-    hotspots.forEach((hotspot, index) => {
-        const row = document.createElement('button');
-        row.className = 'hotspot-row';
-        row.type = 'button';
-        row.innerHTML = `
-            <span class="hotspot-rank">${String(index + 1).padStart(2, '0')}</span>
-            <span class="hotspot-city">
-                <strong>${escapeHtml(hotspot.city)}</strong>
-                <small>${escapeHtml(hotspot.country)} · ${formatCompactNumber(hotspot.totalHeat)} 热度</small>
-            </span>
-            <span class="hotspot-count">${hotspot.count}${hotspot.countCapped ? '+' : ''}<em>条</em></span>
-        `;
-        row.addEventListener('click', () => focusHotspot(hotspot));
-        el.hotspotList.appendChild(row);
-    });
-
-    if (state.globe) {
-        state.globe.pointsData(hotspots).ringsData(hotspots);
-    }
-}
-
-function focusHotspot(hotspot) {
-    if (!state.globe || !hotspot) return;
-    state.globe.controls().autoRotate = false;
-    state.globe.pointOfView({
-        lat: hotspot.lat,
-        lng: hotspot.lng,
-        altitude: 1.35
-    }, 900);
-}
-
-// ── Fetch Trends ──────────────────────────────
-async function fetchTrends(forceRefresh = false) {
-    const reqPlatform = state.activePlatform;
-    const reqCategory = state.activeCategory;
-    const reqSearchQuery = state.searchQuery;
-    const reqTimeRange = state.activeTimeRange;
-    const requestSequence = ++state.requestSequence;
-    if (state.listAbortController) state.listAbortController.abort();
-    const abortController = new AbortController();
-    state.listAbortController = abortController;
-    el.refreshBtn.disabled = true;
-    el.refreshBtn.classList.add('is-loading');
-
-    // Reset pagination states
-    state.searchPage = 1;
-    state.displayLimit = LAZY_PAGE_SIZE;
-    state.hasMore = true;
-    state.isMoreLoading = false;
-    el.infiniteLoader.classList.add('hidden');
-    el.endHint.classList.add('hidden');
-
-    showLoader();
-    try {
-        const url = reqSearchQuery
-            ? `/api/search?platform=${reqPlatform}&category=${reqCategory}&query=${encodeURIComponent(reqSearchQuery)}&timeRange=${reqTimeRange}&refresh=${forceRefresh ? 1 : 0}&_t=${Date.now()}`
-            : `/api/trends?platform=${reqPlatform}&category=${reqCategory}&timeRange=${reqTimeRange}&refresh=${forceRefresh ? 1 : 0}&_t=${Date.now()}`;
-
-        const res  = await fetch(url, { signal: abortController.signal });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || '榜单请求失败');
-
-        // Check for race conditions
-        if (requestSequence !== state.requestSequence || reqPlatform !== state.activePlatform || reqCategory !== state.activeCategory || reqSearchQuery !== state.searchQuery || reqTimeRange !== state.activeTimeRange) {
-            console.log(`Ignoring stale response for ${reqPlatform}/${reqCategory}/${reqSearchQuery}`);
-            return;
-        }
-
-        if (data.success && data.list && data.list.length > 0) {
-            state.videoList = data.list;
-            state.geoSignals = [];
-            state.geoSignalKey = '';
-            updateGlobeFromVideos();
-            if (state.activeView === 'globe') loadGeoHotspots();
-            renderCards(data.list.slice(0, LAZY_PAGE_SIZE));
-            hideLoader();
-
-            if ((!reqSearchQuery && data.list.length <= LAZY_PAGE_SIZE) || data.hasMore === false) {
-                state.hasMore = false;
-                showEndHint(reqSearchQuery ? '已加载全部搜索结果' : '已加载全部数据（最多展示 100 条）');
-            }
-        } else {
-            showEmptyState(data.message || '未能拉取到相关数据，请检查搜索词或网络配置并重试。');
-        }
-    } catch (err) {
-        if (err.name === 'AbortError') return;
-        if (requestSequence !== state.requestSequence || reqPlatform !== state.activePlatform || reqCategory !== state.activeCategory || reqSearchQuery !== state.searchQuery || reqTimeRange !== state.activeTimeRange) return;
-        console.error('Fetch trends failed:', err);
-        showEmptyState(err.message || '本地网络连接失败，请确认后端服务与代理配置。');
-    } finally {
-        if (requestSequence === state.requestSequence) {
-            el.refreshBtn.disabled = false;
-            el.refreshBtn.classList.remove('is-loading');
-        }
-    }
-}
-
-// ── Render Cards ──────────────────────────────
-function renderCards(list) {
-    el.cardsGrid.innerHTML = '';
-
-    list.forEach((item, index) => {
-        const card = document.createElement('article');
-        card.className = 'video-card';
-
-        // For Bilibili, proxy the cover image through our backend to bypass hotlink protection
-        const coverSrc = item.platform === 'Bilibili' && item.cover
-            ? `/api/proxy-image?url=${encodeURIComponent(item.cover)}`
-            : (item.cover || '');
-
-        const showRank = !state.searchQuery;
-        const rankClass = index < 3 ? 'card-rank top3' : 'card-rank';
-        const rankHTML = showRank ? `<span class="${rankClass}">${index + 1}</span>` : '';
-
-        card.innerHTML = `
-            <div class="card-thumbnail-wrapper">
-                <img class="card-thumbnail" src="${escapeHtml(coverSrc)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.style.opacity='.3'">
-                ${rankHTML}
-                <span class="card-duration">${escapeHtml(item.duration)}</span>
-                <div class="card-play-btn" data-idx="${index}">
-                    <div class="card-play-btn-inner">
-                        <i class="fa-solid fa-play" style="margin-left:3px"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="card-details">
-                <h3 class="card-title">${escapeHtml(item.title)}</h3>
-                <div class="card-published">
-                    <i class="fa-regular fa-clock"></i>
-                    ${formatPublishedTime(item.pubdate)}
-                </div>
-                <div class="card-footer">
-                    <div class="card-author">
-                        <i class="fa-regular fa-circle-user"></i>
-                        <span>${escapeHtml(item.author)}</span>
-                    </div>
-                    <div class="card-stats">
-                        <i class="fa-regular fa-eye"></i>
-                        ${escapeHtml(item.playCount)}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Click on play button → popup modal
-        const playBtn = card.querySelector('.card-play-btn');
-        playBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            openPlayerModal(item);
-        });
-
-        // Click on card body → side drawer
-        card.addEventListener('click', () => selectVideo(item));
-
-        el.cardsGrid.appendChild(card);
-    });
-}
-
-// ── Append Cards for Infinite Scroll ───────────
-function appendCards(list) {
-    list.forEach((item, index) => {
-        const card = document.createElement('article');
-        card.className = 'video-card';
-
-        const coverSrc = item.platform === 'Bilibili' && item.cover
-            ? `/api/proxy-image?url=${encodeURIComponent(item.cover)}`
-            : (item.cover || '');
-
-        // Search results do not show ranking numbers since they are not trends
-        card.innerHTML = `
-            <div class="card-thumbnail-wrapper">
-                <img class="card-thumbnail" src="${escapeHtml(coverSrc)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.style.opacity='.3'">
-                <span class="card-duration">${escapeHtml(item.duration)}</span>
-                <div class="card-play-btn">
-                    <div class="card-play-btn-inner">
-                        <i class="fa-solid fa-play" style="margin-left:3px"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="card-details">
-                <h3 class="card-title">${escapeHtml(item.title)}</h3>
-                <div class="card-published">
-                    <i class="fa-regular fa-clock"></i>
-                    ${formatPublishedTime(item.pubdate)}
-                </div>
-                <div class="card-footer">
-                    <div class="card-author">
-                        <i class="fa-regular fa-circle-user"></i>
-                        <span>${escapeHtml(item.author)}</span>
-                    </div>
-                    <div class="card-stats">
-                        <i class="fa-regular fa-eye"></i>
-                        ${escapeHtml(item.playCount)}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const playBtn = card.querySelector('.card-play-btn');
-        playBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            openPlayerModal(item);
-        });
-
-        card.addEventListener('click', () => selectVideo(item));
-        el.cardsGrid.appendChild(card);
-    });
-}
-
-function mergeAndSortVideos(current, incoming) {
-    const unique = new Map();
-    [...current, ...incoming].forEach(item => {
-        const key = `${item.platform || ''}:${item.id || item.url || item.title}`;
-        const previous = unique.get(key);
-        if (!previous || Number(item.playRaw || 0) > Number(previous.playRaw || 0)) {
-            unique.set(key, item);
-        }
-    });
-    return [...unique.values()].sort((a, b) =>
-        Number(b.playRaw || 0) - Number(a.playRaw || 0)
-        || Number(b.pubdate || 0) - Number(a.pubdate || 0)
-    );
-}
-
-// ── Load More Search Results (Lazy Load) ───────
-async function loadMoreSearch() {
-    state.isMoreLoading = true;
-    el.infiniteLoader.classList.remove('hidden');
-
-    const nextPage = state.searchPage + 1;
-    const reqPlatform = state.activePlatform;
-    const reqSearchQuery = state.searchQuery;
-    const reqCategory = state.activeCategory;
-    const reqTimeRange = state.activeTimeRange;
-    const requestSequence = state.requestSequence;
-
-    try {
-        const url = `/api/search?platform=${reqPlatform}&category=${reqCategory}&query=${encodeURIComponent(reqSearchQuery)}&page=${nextPage}&timeRange=${reqTimeRange}&_t=${Date.now()}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || '加载更多失败');
-
-        // Race-condition check
-        if (requestSequence !== state.requestSequence || reqPlatform !== state.activePlatform || reqCategory !== state.activeCategory || reqSearchQuery !== state.searchQuery || reqTimeRange !== state.activeTimeRange) {
-            return;
-        }
-
-        if (data.success && data.list && data.list.length > 0) {
-            state.searchPage = nextPage;
-            state.videoList = mergeAndSortVideos(state.videoList, data.list);
-            renderCards(state.videoList);
-        } else {
-            state.hasMore = false;
-            showEndHint('已加载全部搜索结果');
-        }
-    } catch (err) {
-        console.error('Load more failed:', err);
-    } finally {
-        state.isMoreLoading = false;
-        el.infiniteLoader.classList.add('hidden');
-    }
-}
-
-// ── Load More Category/Trending Items Locally ───
-function loadMoreTrendsLocal() {
-    state.isMoreLoading = true;
-    el.infiniteLoader.classList.remove('hidden');
-
-    // Simulate 400ms delay for visual feedback
-    setTimeout(() => {
-        const currentLimit = state.displayLimit;
-        const nextLimit = currentLimit + LAZY_PAGE_SIZE;
-        const chunk = state.videoList.slice(currentLimit, nextLimit);
-
-        if (chunk.length > 0) {
-            appendCards(chunk);
-            state.displayLimit = nextLimit;
-        }
-
-        state.isMoreLoading = false;
-        el.infiniteLoader.classList.add('hidden');
-
-        if (state.displayLimit >= state.videoList.length || chunk.length === 0) {
-            state.hasMore = false;
-            showEndHint('已加载全部数据（最多展示 100 条）');
-        }
-    }, 400);
-}
-
-// ── Show End Hint ─────────────────────────────
-function showEndHint(text) {
-    el.endHintText.textContent = text;
-    el.endHint.classList.remove('hidden');
-}
-
-function formatPublishedTime(timestamp) {
-    const seconds = Number(timestamp || 0);
-    if (!seconds) return '实时榜单';
-
-    const ageSeconds = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
-    if (ageSeconds < 3600) return `${Math.max(1, Math.floor(ageSeconds / 60))} 分钟前`;
-    if (ageSeconds < 86400) return `${Math.floor(ageSeconds / 3600)} 小时前`;
-    if (ageSeconds < 7 * 86400) return `${Math.floor(ageSeconds / 86400)} 天前`;
-    return new Date(seconds * 1000).toLocaleDateString('zh-CN');
-}
-
-// ── Popup Player Modal ────────────────────────
-function openPlayerModal(video) {
-    el.modalVideoWrapper.innerHTML = '';
-    el.modalVideoTitle.textContent  = video.title;
-    el.modalVideoAuthor.textContent = `作者：${video.author}`;
-
-    if (video.platform === 'Bilibili') {
-        const iframe = document.createElement('iframe');
-        iframe.src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(video.id)}&as_wide=1&high_quality=1&danmaku=0`;
-        iframe.allowFullscreen = true;
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-forms allow-scripts allow-presentation');
-        el.modalVideoWrapper.appendChild(iframe);
-    } else if (video.platform === 'YouTube') {
-        const iframe = document.createElement('iframe');
-        iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(video.id)}?autoplay=1`;
-        iframe.allowFullscreen = true;
-        iframe.allow = 'autoplay; encrypted-media';
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-presentation');
-        el.modalVideoWrapper.appendChild(iframe);
-    } else if (video.duration === 'Topic') {
-        // Topics don't have a direct player — open side drawer instead
-        selectVideo(video);
-        return;
-    } else {
-        el.modalVideoWrapper.innerHTML = `
-            <div class="player-placeholder" id="modal-parse-placeholder">
-                <i class="fa-solid fa-circle-play"></i>
-                <p style="margin-top:8px">短视频 CDN 需要嗅探直链<br>请点击下方抓取工具获取播放地址</p>
-                <button id="modal-open-tools" class="modal-open-tools">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> 打开侧边工具箱
-                </button>
-            </div>
-        `;
-        document.getElementById('modal-open-tools').addEventListener('click', () => {
-            closePlayerModal();
-            selectVideo(video);
-        });
-    }
-
-    el.playerModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-}
-
-function closePlayerModal() {
-    el.playerModal.classList.add('hidden');
-    el.modalVideoWrapper.innerHTML = '';
-    document.body.style.overflow = '';
-}
-
-// ── Side Drawer ───────────────────────────────
-function selectVideo(video) {
-    state.parseSequence += 1;
-    state.selectedVideo = video;
-    el.btnParseStream.disabled = false;
-    el.btnParseStream.innerHTML = '<i class="fa-solid fa-circle-nodes"></i> 提取无水印/MP4直链';
-
-    // Reset state
-    el.streamUrlBox.classList.add('hidden');
-    el.btnDownloadVideo.classList.add('hidden');
-    el.streamUrlInput.value = '';
-
-    // Fill metadata
-    el.drawerPlatformBadge.textContent = video.platform;
-    el.drawerVideoTitle.textContent    = video.title;
-    el.drawerAuthorName.textContent    = video.author;
-    el.drawerAuthorAvatar.src = (video.platform === 'Bilibili' && video.authorAvatar)
-        ? `/api/proxy-image?url=${encodeURIComponent(video.authorAvatar)}`
-        : (video.authorAvatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(video.author)}`);
-
-    // AI placeholder
-    el.aiCategoryBadge.textContent = '等待运行极速抓取';
-    el.aiHighlightsList.innerHTML  = '<li>点击"提取无水印/MP4直链"后启动 AI 分析</li>';
-    el.aiRecommendText.textContent = '提取视频直链后，AI 会根据文案内容生成学习与模仿建议。';
-
-    // Show drawer
-    el.detailDrawer.classList.remove('hidden');
-
-    // Embed player
-    embedPlayer(video);
-}
-
-function embedPlayer(video) {
-    el.videoPlayerWrapper.innerHTML = '';
-
-    if (video.platform === 'Bilibili') {
-        const iframe = document.createElement('iframe');
-        iframe.src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(video.id)}&as_wide=1&high_quality=1&danmaku=0`;
-        iframe.allowFullscreen = true;
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-forms allow-scripts allow-presentation');
-        el.videoPlayerWrapper.appendChild(iframe);
-
-    } else if (video.platform === 'YouTube') {
-        const iframe = document.createElement('iframe');
-        iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(video.id)}`;
-        iframe.allowFullscreen = true;
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-presentation');
-        el.videoPlayerWrapper.appendChild(iframe);
-
-    } else if (video.duration === 'Topic') {
-        el.videoPlayerWrapper.innerHTML = `
-            <div class="player-placeholder">
-                <i class="fa-solid fa-fire-burner"></i>
-                <p>正在拉取"${escapeHtml(video.word)}"话题的精彩解析视频...</p>
-            </div>
-        `;
-        loadTopicVideos(video.word);
-
-    } else {
-        el.videoPlayerWrapper.innerHTML = `
-            <div class="player-placeholder" style="cursor:pointer" id="parse-placeholder">
-                <i class="fa-solid fa-circle-play"></i>
-                <p>短视频 CDN，点击提取直链以在播放器中渲染播放</p>
-            </div>
-        `;
-        document.getElementById('parse-placeholder').addEventListener('click', parseVideoLink);
-    }
-}
-
-async function loadTopicVideos(word) {
-    const requestSequence = state.parseSequence;
-    const selectedVideo = state.selectedVideo;
-    try {
-        const res  = await fetch(`/api/search-topic?query=${encodeURIComponent(word)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || '相关视频加载失败');
-        if (requestSequence !== state.parseSequence || selectedVideo !== state.selectedVideo) return;
-
-        if (data.success && data.list && data.list.length > 0) {
-            el.videoPlayerWrapper.innerHTML = `
-                <div class="topic-sub-list-container">
-                    <p class="topic-sub-title"><i class="fa-solid fa-network-wired"></i> 相关解析视频 (${data.list.length}条)</p>
-                    <div class="topic-sub-list">
-                        ${data.list.map((v, index) => `
-                            <button class="topic-sub-card" type="button" data-topic-index="${index}">
-                                <img src="/api/proxy-image?url=${encodeURIComponent(v.cover)}" alt="" onerror="this.style.opacity='.3'">
-                                <div class="sub-info">
-                                    <p class="sub-title">${escapeHtml(v.title)}</p>
-                                    <p class="sub-meta">${escapeHtml(v.author)} · ${escapeHtml(v.playCount)}</p>
-                                </div>
-                            </button>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-            el.videoPlayerWrapper.querySelectorAll('[data-topic-index]').forEach(button => {
-                button.addEventListener('click', () => {
-                    const video = data.list[Number(button.dataset.topicIndex)];
-                    if (video) playSubVideo(video.id, video.title, video.author);
-                });
-            });
-        } else {
-            el.videoPlayerWrapper.innerHTML = `
-                <div class="player-placeholder">
-                    <i class="fa-regular fa-face-frown"></i>
-                    <p>未找到该话题的相关解析视频</p>
-                </div>
-            `;
-        }
-    } catch (e) {
-        if (requestSequence === state.parseSequence) console.error('loadTopicVideos failed:', e);
-    }
-}
-
-function playSubVideo(bvid, title, author) {
-    el.videoPlayerWrapper.innerHTML = '';
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://player.bilibili.com/player.html?bvid=${bvid}&as_wide=1&high_quality=1&danmaku=0`;
-    iframe.allowFullscreen = true;
-    iframe.setAttribute('sandbox', 'allow-same-origin allow-forms allow-scripts allow-presentation');
-    el.videoPlayerWrapper.appendChild(iframe);
-    el.drawerVideoTitle.textContent = title;
-    el.drawerAuthorName.textContent = author;
-    state.selectedVideo.url    = `https://www.bilibili.com/video/${bvid}`;
-    state.selectedVideo.title  = title;
-    state.selectedVideo.author = author;
-}
-
-// ── Parse stream link ─────────────────────────
-async function parseVideoLink() {
-    if (!state.selectedVideo) return;
-    const selectedVideo = state.selectedVideo;
-    const parseSequence = ++state.parseSequence;
-
-    const orig = el.btnParseStream.innerHTML;
-    el.btnParseStream.innerHTML  = '<i class="fa-solid fa-arrows-spin fa-spin"></i> 正在嗅探抓取流...';
-    el.btnParseStream.disabled   = true;
-
-    try {
-        const res  = await fetch('/api/parse', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ url: selectedVideo.url })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || '视频直链解析失败');
-        if (parseSequence !== state.parseSequence || state.selectedVideo !== selectedVideo) return;
-
-        if (data.success && data.videoUrl) {
-            el.streamUrlBox.classList.remove('hidden');
-            el.streamUrlInput.value = data.videoUrl;
-
-            el.btnDownloadVideo.classList.remove('hidden');
-            const proxyVideoUrl = `/api/proxy-video?url=${encodeURIComponent(data.videoUrl)}&referer=${encodeURIComponent(selectedVideo.url)}`;
-            el.btnDownloadVideo.onclick = () => {
-                const link = document.createElement('a');
-                link.href = `${proxyVideoUrl}&download=1`;
-                link.download = 'hotpot-video.mp4';
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-            };
-
-            // Replace drawer player with native video
-            el.videoPlayerWrapper.innerHTML = '';
-            const vid = document.createElement('video');
-            vid.src     = proxyVideoUrl;
-            vid.controls = true;
-            vid.autoplay = true;
-            vid.style.cssText = 'width:100%;height:100%;background:#000;';
-            el.videoPlayerWrapper.appendChild(vid);
-
-            runAIAnalysis(data.title || selectedVideo.title, data.description || '', parseSequence);
-            showToast('🎉 视频直链提取成功，已载入播放器并启动 AI 拆解！');
-        } else {
-            showToast('嗅探失败：无法抓取视频数据，请尝试直接访问原网页。');
-        }
-    } catch (err) {
-        console.error('Parse failed:', err);
-        showToast('请求超时，请检查服务日志与代理状态。');
-    } finally {
-        if (parseSequence === state.parseSequence) {
-            el.btnParseStream.innerHTML = orig;
-            el.btnParseStream.disabled  = false;
-        }
-    }
-}
-
-// ── AI Analysis ───────────────────────────────
-async function runAIAnalysis(title, desc, parseSequence = state.parseSequence) {
-    try {
-        const res  = await fetch('/api/analyze', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ title, description: desc })
-        });
-        const data = await res.json();
-        if (!data.success || parseSequence !== state.parseSequence) return;
-
-        el.aiCategoryBadge.textContent = data.category;
-        el.aiHighlightsList.innerHTML  = '';
-        data.highlights.forEach(h => {
-            const li = document.createElement('li');
-            li.textContent = h;
-            el.aiHighlightsList.appendChild(li);
-        });
-        el.aiRecommendText.textContent = data.recommendations;
-    } catch (e) { console.error('AI Analysis failed:', e); }
-}
-
-// ── UI State ─────────────────────────────────
-function closeDrawer() {
-    state.parseSequence += 1;
-    el.detailDrawer.classList.add('hidden');
-    el.videoPlayerWrapper.innerHTML = '';
-    state.selectedVideo = null;
-}
-
-function showLoader() {
-    el.loader.classList.remove('hidden');
-    el.emptyState.classList.add('hidden');
-    el.cardsGrid.classList.add('hidden');
-    el.globeView.classList.toggle('is-loading', state.activeView === 'globe');
-}
-
-function hideLoader() {
-    el.loader.classList.add('hidden');
-    el.emptyState.classList.add('hidden');
-    el.cardsGrid.classList.toggle('hidden', state.activeView !== 'feed');
-    el.globeView.classList.remove('is-loading');
-}
-
-function showEmptyState(msg) {
-    if (state.activeView === 'globe') {
-        el.globeView.classList.remove('is-loading');
-        el.globeEmpty.classList.remove('hidden');
-        el.globeEmpty.querySelector('h3').textContent = '热点数据加载失败';
-        el.globeEmpty.querySelector('p').textContent = msg || '请检查代理配置或刷新重试。';
-        return;
-    }
-    el.loader.classList.add('hidden');
-    el.emptyState.classList.remove('hidden');
-    el.cardsGrid.classList.add('hidden');
-    el.globeView.classList.remove('is-loading');
-    const pEl = el.emptyState.querySelector('p');
-    if (pEl) {
-        pEl.textContent = msg || '未能拉取到热门数据，请检查代理配置或刷新重试。';
-    }
-}
-
-// ── Toast Notifications ───────────────────────
-function showToast(msg) {
-    // Remove any existing toast
-    document.querySelectorAll('.hp-toast').forEach(t => t.remove());
-
-    const toast = document.createElement('div');
-    toast.className = 'hp-toast';
-    Object.assign(toast.style, {
-        position:     'fixed',
-        bottom:       '28px',
-        left:         '50%',
-        transform:    'translateX(-50%) translateY(8px)',
-        background:   'rgba(16,16,20,0.97)',
-        border:       '1px solid var(--accent)',
-        color:        '#fff',
-        padding:      '10px 22px',
-        borderRadius: '10px',
-        fontSize:     '13px',
-        fontWeight:   '500',
-        fontFamily:   'var(--font)',
-        boxShadow:    '0 6px 30px rgba(0,0,0,0.6)',
-        zIndex:       '9999',
-        opacity:      '0',
-        transition:   'all .28s ease',
-        whiteSpace:   'nowrap',
-        maxWidth:     '80vw',
-        overflow:     'hidden',
-        textOverflow: 'ellipsis'
-    });
-    toast.textContent = msg;
-    document.body.appendChild(toast);
-
-    requestAnimationFrame(() => {
-        toast.style.opacity   = '1';
-        toast.style.transform = 'translateX(-50%) translateY(0)';
-    });
-
-    setTimeout(() => {
-        toast.style.opacity   = '0';
-        toast.style.transform = 'translateX(-50%) translateY(8px)';
-        setTimeout(() => toast.remove(), 300);
-    }, 2800);
-}
-
-// ── Helpers ───────────────────────────────────
-function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
-
-function formatCompactNumber(value) {
-    const number = Number(value || 0);
-    if (number >= 100000000) return `${(number / 100000000).toFixed(1)}亿`;
-    if (number >= 10000) return `${(number / 10000).toFixed(1)}万`;
-    return number.toLocaleString('zh-CN');
-}
-
-async function copyText(text, successMessage) {
-    try {
-        await navigator.clipboard.writeText(text);
-        showToast(successMessage);
-    } catch {
-        showToast('复制失败，请检查浏览器剪贴板权限。');
-    }
-}
-
-// ── Authentication & Download System ─────────────────
-async function checkAuthStatus() {
-    if (!state.token) {
-        updateUserUi(null);
-        return;
-    }
-    try {
-        const res = await fetch('/api/auth/me', {
-            headers: { 'Authorization': `Bearer ${state.token}` }
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-            state.currentUser = data.user;
-            updateUserUi(data.user);
-        } else {
-            // Token expired
-            state.token = '';
-            state.currentUser = null;
-            localStorage.removeItem('hotpot_token');
-            updateUserUi(null);
-        }
-    } catch (e) {
-        updateUserUi(null);
-    }
-}
-
-function updateUserUi(user) {
-    const loggedInBox = document.getElementById('user-logged-in-box');
-    const loginTrigger = document.getElementById('user-login-trigger');
-    const avatarEl = document.getElementById('user-avatar');
-    const nickEl = document.getElementById('user-nickname');
-    const badgeEl = document.getElementById('user-role-badge');
-    const quotaEl = document.getElementById('user-quota-text');
-
-    if (user) {
-        if (loggedInBox) loggedInBox.classList.remove('hidden');
-        if (loginTrigger) loginTrigger.classList.add('hidden');
-        if (avatarEl) avatarEl.src = user.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=user';
-        if (nickEl) nickEl.textContent = user.nickname || user.username;
-        if (badgeEl) {
-            badgeEl.textContent = user.role === 'admin' ? 'ADMIN' : (user.role === 'pro' ? 'PRO会员' : '免费用户');
-            badgeEl.className = `role-badge ${user.role === 'admin' ? 'role-admin' : 'role-pro'}`;
-        }
-        if (quotaEl) {
-            quotaEl.textContent = user.remaining >= 900 ? '今日下载配额: 无限制' : `今日下载配额: ${user.remaining}/5`;
-        }
-    } else {
-        if (loggedInBox) loggedInBox.classList.add('hidden');
-        if (loginTrigger) loginTrigger.classList.remove('hidden');
-    }
-}
-
-function openAuthModal() {
-    const modal = document.getElementById('auth-modal');
-    if (modal) modal.classList.remove('hidden');
-}
-
-function closeAuthModal() {
-    const modal = document.getElementById('auth-modal');
-    if (modal) modal.classList.add('hidden');
-}
-
-function setupAuthEvents() {
-    const openBtn = document.getElementById('open-login-btn');
-    const closeBtn = document.getElementById('close-auth-modal-btn');
-    const logoutBtn = document.getElementById('auth-logout-btn');
-    const demoBtn = document.getElementById('btn-quick-demo');
-    const tabs = document.querySelectorAll('.auth-tab');
-    const loginForm = document.getElementById('login-form');
-    const regForm = document.getElementById('register-form');
-    const modal = document.getElementById('auth-modal');
-
-    if (openBtn) openBtn.addEventListener('click', openAuthModal);
-    if (closeBtn) closeBtn.addEventListener('click', closeAuthModal);
-    if (modal) {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeAuthModal();
-        });
-    }
-
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            state.token = '';
-            state.currentUser = null;
-            localStorage.removeItem('hotpot_token');
-            updateUserUi(null);
-            showToast('已安全退出登录');
-        });
-    }
-
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            const target = tab.dataset.tab;
-            if (target === 'login') {
-                loginForm.classList.remove('hidden');
-                regForm.classList.add('hidden');
-            } else {
-                loginForm.classList.add('hidden');
-                regForm.classList.remove('hidden');
-            }
-        });
-    });
-
-    if (demoBtn) {
-        demoBtn.addEventListener('click', async () => {
-            try {
-                const res = await fetch('/api/auth/demo-login', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    state.token = data.token;
-                    state.currentUser = data.user;
-                    localStorage.setItem('hotpot_token', data.token);
-                    updateUserUi(data.user);
-                    closeAuthModal();
-                    showToast('🎉 演示账号登入成功！享受 100% 科技功能');
+            containerEl.appendChild(el);
+            setTimeout(() => {
+                if (el.parentNode === containerEl) {
+                    containerEl.removeChild(el);
                 }
-            } catch (e) {
-                showToast('演示账号登入失败');
+            }, duration * 1000 + 500);
+        }
+
+        toggle(containerEl, btnEl) {
+            this.active = !this.active;
+            if (btnEl) {
+                btnEl.classList.toggle('active', this.active);
+                btnEl.innerHTML = `<i class="fa-solid fa-comment-dots"></i> <span>弹幕 ${this.active ? '开' : '关'}</span>`;
             }
+            if (containerEl) {
+                containerEl.style.display = this.active ? 'block' : 'none';
+            }
+        }
+
+        stop() {
+            this.timers.forEach(t => clearInterval(t));
+            this.timers = [];
+        }
+    }
+
+    const danmakuEngine = new DanmakuEngine();
+
+    // ── 3D Globe Radar Controller (Optimized WebGL, Static View, 4-Tier Colors) ─
+    class GlobeRadarController {
+        constructor() {
+            this.globe = null;
+            this.isInitialized = false;
+            this.resizeHandler = null;
+        }
+
+        init(containerEl) {
+            if (!window.Globe || !containerEl || this.isInitialized) return;
+
+            try {
+                this.globe = Globe()(containerEl)
+                    .globeImageUrl('/vendor/earth-blue-marble.jpg')
+                    .bumpImageUrl('/vendor/earth-topology.png')
+                    .backgroundImageUrl('/vendor/night-sky.png')
+                    .backgroundColor('rgba(3, 5, 9, 0)')
+                    .showAtmosphere(true)
+                    .atmosphereColor('#38bdf8')
+                    .atmosphereAltitude(0.20)
+                    .pointLat('lat')
+                    .pointLng('lng')
+                    .pointColor(d => d.color || (d.tier === 'high' ? '#ff2442' : (d.tier === 'medium' ? '#f59e0b' : (d.tier === 'normal' ? '#10b981' : '#06b6d4'))))
+                    .pointAltitude(d => d.tier === 'high' ? 0.35 : (d.tier === 'medium' ? 0.22 : (d.tier === 'normal' ? 0.12 : 0.06)))
+                    .pointRadius(d => d.tier === 'high' ? 1.6 : (d.tier === 'medium' ? 1.2 : (d.tier === 'normal' ? 0.9 : 0.6)))
+                    .pointResolution(12)
+                    .pointLabel(d => `
+                        <div style="background: rgba(14,18,28,0.96); border: 1px solid ${d.color || '#38bdf8'}; border-radius: 8px; padding: 8px 12px; color: #fff; font-family: Outfit, sans-serif; box-shadow: 0 4px 16px rgba(0,0,0,0.6);">
+                            <div style="font-weight: 700; font-size: 13px; color: ${d.color || '#38bdf8'};">${d.city} · ${d.country}</div>
+                            <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">关联作品: ${d.countDisplay || d.count + '篇'}</div>
+                            <div style="font-size: 10.5px; color: #4ade80;">综合传播: ${d.totalHeatDisplay || d.totalHeat + '热度'}</div>
+                        </div>
+                    `)
+                    .onPointClick((point) => {
+                        this.focusCity(point.lat, point.lng);
+                    });
+
+                // Set camera altitude (Center on China / East Asia initially)
+                this.globe.pointOfView({ lat: 31.2, lng: 115.5, altitude: 2.1 }, 1000);
+                
+                // Disable auto rotation per user directive
+                const controls = this.globe.controls();
+                if (controls) {
+                    controls.autoRotate = false;
+                    controls.enableDamping = true;
+                    controls.dampingFactor = 0.08;
+                }
+
+                // Debounced Resize Observer
+                this.resizeHandler = () => {
+                    if (this.globe && containerEl.clientWidth > 0 && containerEl.clientHeight > 0) {
+                        this.globe.width(containerEl.clientWidth);
+                        this.globe.height(containerEl.clientHeight);
+                    }
+                };
+                window.addEventListener('resize', this.resizeHandler);
+
+                this.isInitialized = true;
+            } catch (err) {
+                console.error('[Globe] Initialization failed:', err);
+            }
+        }
+
+        updatePoints(hotspots) {
+            if (!this.globe) return;
+            this.globe.pointsData(hotspots || []);
+        }
+
+        focusCity(lat, lng) {
+            if (!this.globe) return;
+            this.globe.pointOfView({ lat, lng, altitude: 1.2 }, 1000);
+        }
+
+        destroy() {
+            if (this.resizeHandler) {
+                window.removeEventListener('resize', this.resizeHandler);
+            }
+            this.isInitialized = false;
+        }
+    }
+
+    const globeRadar = new GlobeRadarController();
+
+    // ── Network & API Layer ─────────────────────────────────────────
+    async function fetchVideosApi(platform, category, timeRange, query = '') {
+        const queryParams = new URLSearchParams({
+            platform: platform || state.platform,
+            category: category || state.category,
+            timeRange: timeRange || state.timeRange
+        });
+        if (query) queryParams.set('query', query);
+
+        const endpoint = query ? `/api/search?${queryParams.toString()}` : `/api/trends?${queryParams.toString()}`;
+        const res = await fetch(endpoint);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    }
+
+    async function fetchTopicsApi(platform, category, timeRange) {
+        const queryParams = new URLSearchParams({
+            platform: platform || state.platform,
+            category: category || state.category,
+            timeRange: timeRange || state.timeRange
+        });
+        const res = await fetch(`/api/topics?${queryParams.toString()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    }
+
+    async function fetchTopicVideosApi(topic) {
+        const queryParams = new URLSearchParams({
+            query: topic.title,
+            topicId: topic.id || '',
+            platform: state.platform
+        });
+        const res = await fetch(`/api/search-topic?${queryParams.toString()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    }
+
+    async function fetchGeoRadarApi() {
+        const queryParams = new URLSearchParams({
+            platform: state.platform,
+            category: state.category,
+            timeRange: state.timeRange
+        });
+        const res = await fetch(`/api/geo-hotspots?${queryParams.toString()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    }
+
+    // ── Main Data Orchestrator ──────────────────────────────────────
+    async function loadData(reset = true) {
+        if (state.isLoading) return;
+        state.isLoading = true;
+
+        if (reset) {
+            state.page = 1;
+            state.hasMore = true;
+            state.allVideos = [];
+            state.displayedVideos = [];
+            state.topicsList = [];
+            state.currentTopic = null;
+
+            // UI Reset
+            dom.loader.classList.remove('hidden');
+            dom.emptyState.classList.add('hidden');
+            dom.cardsGrid.classList.add('hidden');
+            dom.topicsGrid.classList.add('hidden');
+            dom.topicDrilldownView.classList.add('hidden');
+            dom.endHint.classList.add('hidden');
+            dom.refreshBtn.classList.add('is-loading');
+        }
+
+        try {
+            if (state.metricMode === 'topic') {
+                // Topic Mode
+                await loadTopicLeaderboard();
+            } else {
+                // Single Video Mode
+                await loadSingleVideoList();
+            }
+
+            // Sync Geo Radar in Background
+            loadGeoHotspots();
+        } catch (err) {
+            console.error('[App] Load data failed:', err);
+            showToast(`加载失败: ${err.message}`, 'error');
+            dom.emptyState.classList.remove('hidden');
+        } finally {
+            state.isLoading = false;
+            dom.loader.classList.add('hidden');
+            dom.refreshBtn.classList.remove('is-loading');
+        }
+    }
+
+    // ── Metric Mode 1: Single Video Feed ────────────────────────────
+    async function loadSingleVideoList() {
+        const result = await fetchVideosApi(state.platform, state.category, state.timeRange, state.searchQuery);
+        const list = result.list || [];
+
+        if (list.length === 0) {
+            dom.emptyState.classList.remove('hidden');
+            dom.cardsGrid.classList.add('hidden');
+            return;
+        }
+
+        state.allVideos = list;
+        state.displayedVideos = list.slice(0, state.pageSize);
+        
+        renderVideoCards(state.displayedVideos, dom.cardsGrid);
+        dom.cardsGrid.classList.remove('hidden');
+
+        if (state.displayedVideos.length >= state.allVideos.length) {
+            dom.endHint.classList.remove('hidden');
+        }
+    }
+
+    const CATEGORY_SAMPLE_COVERS = {
+        comedy: [
+            'https://images.unsplash.com/photo-1527224857830-43a7acc85260?q=80&w=700',
+            'https://images.unsplash.com/photo-1517841905240-472988babdf9?q=80&w=700'
+        ],
+        ent: [
+            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=700',
+            'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?q=80&w=700'
+        ],
+        fashion: [
+            'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?q=80&w=700',
+            'https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=700'
+        ],
+        pets: [
+            'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?q=80&w=700',
+            'https://images.unsplash.com/photo-1543466835-00a7907e9de1?q=80&w=700'
+        ],
+        wildlife: [
+            'https://images.unsplash.com/photo-1546182990-dffeafbe841d?q=80&w=700',
+            'https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=700'
+        ],
+        tech: [
+            'https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=700',
+            'https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=700'
+        ],
+        marketing: [
+            'https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=700',
+            'https://images.unsplash.com/photo-1551836022-d5d88e9218df?q=80&w=700'
+        ],
+        kuso: [
+            'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=700',
+            'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=700'
+        ]
+    };
+
+    function getSafeCoverUrl(video, index = 0) {
+        if (video.cover && typeof video.cover === 'string' && video.cover.startsWith('http')) {
+            return video.cover;
+        }
+        const cat = (state.category && state.category !== 'all') ? state.category : 'comedy';
+        const list = CATEGORY_SAMPLE_COVERS[cat] || CATEGORY_SAMPLE_COVERS.comedy;
+        return list[index % list.length];
+    }
+
+    function renderVideoCards(videos, containerEl) {
+        containerEl.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+
+        videos.forEach((video, index) => {
+            const card = document.createElement('div');
+            card.className = 'video-card';
+            
+            const rank = index + 1;
+            const rankClass = rank === 1 ? 'top-1' : (rank === 2 ? 'top-2' : (rank === 3 ? 'top-3' : ''));
+            const rankIcon = rank === 1 ? '👑 #1' : (rank === 2 ? '🥈 #2' : (rank === 3 ? '🥉 #3' : `#${rank}`));
+            
+            const displayViews = video.playCount || formatHeat(video.playRaw || 0);
+            const coverUrl = getSafeCoverUrl(video, index);
+
+            card.innerHTML = `
+                <div class="card-thumbnail-wrapper">
+                    <img class="card-thumbnail" src="${escapeHtml(coverUrl)}" alt="${escapeHtml(video.title)}" loading="lazy">
+                    <span class="card-rank ${rankClass}">${rankIcon}</span>
+                    <span class="card-duration">${escapeHtml(video.duration || 'Shorts')}</span>
+                    <div class="card-play-btn">
+                        <div class="card-play-btn-inner"><i class="fa-solid fa-play"></i></div>
+                    </div>
+                </div>
+                <div class="card-details">
+                    <h3 class="card-title" title="${escapeHtml(video.title)}">${escapeHtml(video.title)}</h3>
+                    <div class="card-published">
+                        <i class="fa-regular fa-clock"></i>
+                        <span>${formatPublishDate(video.pubdate)}</span>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-author" title="${escapeHtml(video.author || '达人')}">
+                            <i class="fa-solid fa-circle-user"></i> ${escapeHtml(video.author || '达人')}
+                        </span>
+                        <div class="card-stats" title="单视频真实播放量">
+                            <i class="fa-solid fa-fire"></i>
+                            <span>${displayViews} 播放</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            card.addEventListener('click', () => {
+                openVideoModal(video);
+            });
+
+            fragment.appendChild(card);
+        });
+
+        containerEl.appendChild(fragment);
+    }
+
+    // ── Metric Mode 2: Topic Event Leaderboard ──────────────────────
+    async function loadTopicLeaderboard() {
+        const result = await fetchTopicsApi(state.platform, state.category, state.timeRange);
+        const list = result.list || [];
+
+        if (list.length === 0) {
+            dom.emptyState.classList.remove('hidden');
+            dom.topicsGrid.classList.add('hidden');
+            return;
+        }
+
+        state.topicsList = list;
+        renderTopicLeaderboard(state.topicsList, dom.topicsGrid);
+        dom.topicsGrid.classList.remove('hidden');
+        dom.endHint.classList.remove('hidden');
+    }
+
+    function renderTopicLeaderboard(topics, containerEl) {
+        containerEl.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+
+        topics.forEach((topic, index) => {
+            const card = document.createElement('div');
+            card.className = 'topic-event-card';
+
+            const rank = index + 1;
+            const rankClass = rank === 1 ? 'top-1' : (rank === 2 ? 'top-2' : (rank === 3 ? 'top-3' : ''));
+            const rankIcon = rank === 1 ? '👑 1' : (rank === 2 ? '🥈 2' : (rank === 3 ? '🥉 3' : `${rank}`));
+
+            card.innerHTML = `
+                <div class="topic-card-left">
+                    <div class="topic-rank-badge ${rankClass}">${rankIcon}</div>
+                    <div class="topic-content-box">
+                        <div class="topic-title-row">
+                            <span class="topic-tag-pill">${escapeHtml(topic.tag || '🔥 爆款')}</span>
+                            <h3 class="topic-title-text">${escapeHtml(topic.title)}</h3>
+                        </div>
+                        <p class="topic-desc-text">${escapeHtml(topic.desc || '全网综合热门话题与挑战赛讨论狂潮')}</p>
+                    </div>
+                </div>
+                <div class="topic-card-right">
+                    <div class="topic-stats-column">
+                        <span class="topic-heat-badge"><i class="fa-solid fa-fire"></i> ${escapeHtml(topic.heatDisplay || '10亿+')} 热度</span>
+                        <span class="topic-works-count">${escapeHtml(topic.worksCountDisplay || '2.4万篇作品')}</span>
+                    </div>
+                    <button class="btn-view-topic-videos">
+                        <span>查看关联视频</span> <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+            `;
+
+            card.addEventListener('click', () => {
+                openTopicDrilldown(topic);
+            });
+
+            fragment.appendChild(card);
+        });
+
+        containerEl.appendChild(fragment);
+    }
+
+    // ── Metric Mode 2: Topic Drill-Down ─────────────────────────────
+    async function openTopicDrilldown(topic) {
+        state.currentTopic = topic;
+        
+        // Switch View
+        dom.topicsGrid.classList.add('hidden');
+        dom.topicDrilldownView.classList.remove('hidden');
+        dom.drilldownCardsGrid.innerHTML = `
+            <div class="loader-container" style="grid-column: 1 / -1;">
+                <div class="neon-spinner"></div>
+                <p>正在拉取话题【${escapeHtml(topic.title)}】下的高播放量爆款视频...</p>
+            </div>
+        `;
+
+        dom.drilldownTopicTag.textContent = topic.tag || '🔥 爆款话题';
+        dom.drilldownTopicTitle.textContent = topic.title;
+        dom.drilldownTopicMeta.textContent = `全网话题总热度: ${topic.heatDisplay || '20亿+'} · 关联作品从高到低排序`;
+
+        try {
+            const res = await fetchTopicVideosApi(topic);
+            const videos = res.list || [];
+
+            if (videos.length === 0) {
+                dom.drilldownCardsGrid.innerHTML = `
+                    <div class="empty-container" style="grid-column: 1 / -1;">
+                        <i class="fa-regular fa-folder-open empty-icon"></i>
+                        <h3>暂无该话题下的视频</h3>
+                    </div>
+                `;
+                return;
+            }
+
+            renderVideoCards(videos, dom.drilldownCardsGrid);
+        } catch (err) {
+            console.error('[Drilldown] Fetch failed:', err);
+            showToast('获取话题关联视频失败', 'error');
+        }
+    }
+
+    function closeTopicDrilldown() {
+        state.currentTopic = null;
+        dom.topicDrilldownView.classList.add('hidden');
+        dom.topicsGrid.classList.remove('hidden');
+    }
+
+    // ── Infinite Scroll Pagination ──────────────────────────────────
+    function handleScrollPagination() {
+        if (state.metricMode !== 'single' || state.isLoading || !state.hasMore) return;
+
+        const { scrollTop, scrollHeight, clientHeight } = dom.gridScrollArea;
+        if (scrollTop + clientHeight >= scrollHeight - 120) {
+            loadNextPage();
+        }
+    }
+
+    function loadNextPage() {
+        if (state.isLoading) return;
+        const currentLength = state.displayedVideos.length;
+        const totalLength = state.allVideos.length;
+
+        if (currentLength >= totalLength) {
+            state.hasMore = false;
+            dom.infiniteLoader.classList.add('hidden');
+            dom.endHint.classList.remove('hidden');
+            return;
+        }
+
+        dom.infiniteLoader.classList.remove('hidden');
+        state.isLoading = true;
+
+        setTimeout(() => {
+            state.page += 1;
+            const nextBatch = state.allVideos.slice(currentLength, currentLength + state.pageSize);
+            state.displayedVideos = [...state.displayedVideos, ...nextBatch];
+            renderVideoCards(state.displayedVideos, dom.cardsGrid);
+            
+            dom.infiniteLoader.classList.add('hidden');
+            state.isLoading = false;
+
+            if (state.displayedVideos.length >= totalLength) {
+                state.hasMore = false;
+                dom.endHint.classList.remove('hidden');
+            }
+        }, 300);
+    }
+
+    // ── 3D Geo Radar Data Synchronizer (All 48 Cities & Multi-Tier Metrics) ─
+    async function loadGeoHotspots() {
+        try {
+            const data = await fetchGeoRadarApi();
+            const hotspots = Array.isArray(data.list) ? data.list : (Array.isArray(data.hotspots) ? data.hotspots : []);
+            
+            state.geoHotspots = hotspots;
+            
+            // Update Metrics
+            dom.geoCityCount.textContent = hotspots.length || 48;
+            
+            const totalEstimatedWorks = data.totalSignals || hotspots.reduce((acc, cur) => acc + (cur.count || 0), 0);
+            dom.geoVideoCount.textContent = formatHeat(totalEstimatedWorks) + '篇';
+
+            // Render Panel List (Show all 48 cities with custom tier indicators)
+            renderHotspotList(hotspots);
+
+            // Update Globe 3D Points
+            if (globeRadar.isInitialized) {
+                globeRadar.updatePoints(hotspots);
+            }
+        } catch (err) {
+            console.error('[Geo] Load failed:', err);
+        }
+    }
+
+    function renderHotspotList(hotspots) {
+        dom.hotspotList.innerHTML = '';
+        hotspots.forEach(spot => {
+            const row = document.createElement('div');
+            row.className = 'hotspot-row';
+            const tierClass = spot.tier || 'normal';
+            row.innerHTML = `
+                <span><i class="legend-dot ${tierClass}"></i> <strong>${escapeHtml(spot.city)}</strong> · ${escapeHtml(spot.country)}</span>
+                <span style="color: ${spot.color || '#38bdf8'}; font-weight: 700;">${escapeHtml(spot.countDisplay || formatHeat(spot.count) + '篇')}</span>
+            `;
+            row.addEventListener('click', () => {
+                globeRadar.focusCity(spot.lat, spot.lng);
+            });
+            dom.hotspotList.appendChild(row);
         });
     }
 
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = document.getElementById('login-username').value.trim();
-            const password = document.getElementById('login-password').value;
-            const msgBox = document.getElementById('login-msg-box');
+    // ── Popup Video Player & Origin Platform Link ───────────────────
+    function openVideoModal(video) {
+        state.activeVideo = video;
 
+        dom.modalPlatformBadge.textContent = video.platform || state.platform.toUpperCase();
+        dom.modalVideoTitle.textContent = video.title || '视频播放';
+        dom.modalVideoAuthor.innerHTML = `<i class="fa-regular fa-user"></i> ${escapeHtml(video.author || '达人')}`;
+        dom.modalVideoPlayCount.innerHTML = `<i class="fa-regular fa-eye"></i> ${escapeHtml(video.playCount || formatHeat(video.playRaw || 0))} 播放`;
+
+        // Direct Original Platform Link in New Tab
+        const originUrl = video.url || `https://www.bilibili.com/video/${video.id}`;
+        dom.modalOpenOriginBtn.href = originUrl;
+
+        // Player Embed Construction
+        renderPlayerEmbed(video, dom.modalVideoWrapper);
+
+        // Start Danmaku Engine
+        danmakuEngine.start(dom.modalDanmakuScreen);
+
+        // Open Modal
+        dom.playerModal.classList.remove('hidden');
+    }
+
+    function renderPlayerEmbed(video, containerEl) {
+        containerEl.innerHTML = '';
+        const bvid = video.id;
+
+        if (bvid && (bvid.startsWith('BV') || bvid.startsWith('av'))) {
+            // Bilibili Iframe Player
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&as_wide=1&allowfullscreen=true&autoplay=1`;
+            iframe.setAttribute('allowfullscreen', 'true');
+            iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+            containerEl.appendChild(iframe);
+        } else if (video.streamUrl) {
+            // Direct MP4 / HLS Video Element
+            const videoEl = document.createElement('video');
+            videoEl.src = video.streamUrl;
+            videoEl.controls = true;
+            videoEl.autoplay = true;
+            containerEl.appendChild(videoEl);
+        } else {
+            // High-Tech Cyber Placeholder with Instant Sniffer
+            containerEl.innerHTML = `
+                <div class="player-placeholder" style="background: #000;">
+                    <img src="${escapeHtml(video.cover || '')}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.4; filter: blur(4px);">
+                    <div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-circle-play" style="font-size: 48px; color: #38bdf8; cursor: pointer;"></i>
+                        <p style="color: #fff; font-size: 14px; font-weight: 600;">点击右上角「在原平台打开」直接播放原高清画质</p>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    function closePlayerModal() {
+        dom.playerModal.classList.add('hidden');
+        dom.modalVideoWrapper.innerHTML = '';
+        danmakuEngine.stop();
+    }
+
+    // ── Stream Sniffer & Video Action Tools ──────────────────────────
+    async function sniffVideoDirectStream(video, btnEl) {
+        if (!video) return;
+        const targetUrl = video.url || `https://www.bilibili.com/video/${video.id}`;
+        
+        const originalBtnHtml = btnEl ? btnEl.innerHTML : '';
+        if (btnEl) {
+            btnEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 嗅探中...`;
+            btnEl.disabled = true;
+        }
+
+        showToast('正在启动引擎，智能提取物理视频流...', 'info');
+
+        try {
+            const res = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: targetUrl })
+            });
+            const data = await res.json();
+
+            if (data.success && data.videoUrl) {
+                video.streamUrl = data.videoUrl;
+                renderPlayerEmbed(video, dom.modalVideoWrapper);
+                showToast('嗅探成功！已切换至原画直链播放', 'success');
+
+                // Drawer Tools Feedback
+                dom.streamUrlInput.value = data.videoUrl;
+                dom.streamUrlBox.classList.remove('hidden');
+                dom.btnDownloadVideo.classList.remove('hidden');
+                
+                // Populate AI Insights
+                populateAiInsights(video);
+            } else {
+                showToast('已获取原站播放凭证，建议在原平台直接观看', 'info');
+            }
+        } catch (err) {
+            console.error('[Sniff] Error:', err);
+            showToast('嗅探服务繁忙，已为您准备原平台直达链接', 'info');
+        } finally {
+            if (btnEl) {
+                btnEl.innerHTML = originalBtnHtml;
+                btnEl.disabled = false;
+            }
+        }
+    }
+
+    function downloadVideo(video) {
+        if (!video) return;
+        const targetUrl = video.streamUrl || video.url || `https://www.bilibili.com/video/${video.id}`;
+        
+        if (video.streamUrl) {
+            // Direct download link via proxy
+            const proxyDownloadUrl = `/api/proxy-video?url=${encodeURIComponent(video.streamUrl)}&download=1`;
+            window.open(proxyDownloadUrl, '_blank');
+            showToast('已开始极速下载高清视频文件', 'success');
+        } else {
+            showToast('正在为您跳转原平台高清下载页...', 'info');
+            window.open(targetUrl, '_blank');
+        }
+    }
+
+    function copyVideoLink(video) {
+        if (!video) return;
+        const link = video.url || `https://www.bilibili.com/video/${video.id}`;
+        navigator.clipboard.writeText(link).then(() => {
+            showToast('已成功复制视频原链接到剪贴板！', 'success');
+        }).catch(() => {
+            showToast('复制链接失败，请手动复制', 'error');
+        });
+    }
+
+    function populateAiInsights(video) {
+        dom.aiCategoryBadge.textContent = `${video.platform || '全网'} · 爆款指数 98.6`;
+        dom.aiHighlightsList.innerHTML = `
+            <li><strong>黄金前3秒：</strong>采用强冲突视觉定格，迅速拉高用户停留率</li>
+            <li><strong>中段节奏：</strong>卡点音效配合转场，密集输出情绪价值</li>
+            <li><strong>收尾互动：</strong>提出话题性问题，引导弹幕与评论区争论二创</li>
+        `;
+        dom.aiRecommendationText.textContent = `该视频在 ${video.platform} 极具传播力，建议提炼前5秒黄金文案，配合热门BGM进行同领域选题模仿。`;
+    }
+
+    // ── Authentication & Role Switching ─────────────────────────────
+    async function initUserSession() {
+        try {
+            const res = await fetch('/api/auth/me');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.user) {
+                    setUserSession(data.user);
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        // Default Demo User
+        setUserSession({
+            username: 'demo',
+            nickname: '体验用户',
+            role: 'user',
+            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=demo'
+        });
+    }
+
+    function setUserSession(user) {
+        state.user = user;
+        updateUserUi(user);
+    }
+
+    function updateUserUi(user) {
+        if (!user) {
+            dom.userLoggedInBox.classList.add('hidden');
+            dom.userLoginTrigger.classList.remove('hidden');
+            return;
+        }
+
+        dom.userLoggedInBox.classList.remove('hidden');
+        dom.userLoginTrigger.classList.add('hidden');
+
+        dom.userAvatar.src = user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username}`;
+        dom.userNickname.textContent = user.nickname || user.username;
+
+        const role = user.role || 'user';
+        dom.userRoleBadge.className = `role-badge role-${role}`;
+        dom.userRoleBadge.textContent = role === 'admin' ? 'ADMIN' : (role === 'pro' ? 'PRO' : 'USER');
+    }
+
+    async function switchRole(roleType) {
+        try {
+            const res = await fetch('/api/auth/demo-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: roleType })
+            });
+            const data = await res.json();
+            if (data.success && data.user) {
+                setUserSession(data.user);
+                showToast(`已切换身份为: ${data.user.nickname}`, 'success');
+                dom.authModal.classList.add('hidden');
+            }
+        } catch (err) {
+            showToast('切换角色失败', 'error');
+        }
+    }
+
+    // ── Settings & Proxy ────────────────────────────────────────────
+    async function loadSettings() {
+        try {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+            if (data.success) {
+                dom.settingProxy.value = data.proxy || '';
+                updateProxyStatus(data.proxy);
+            }
+        } catch (e) {}
+    }
+
+    function updateProxyStatus(proxyUrl) {
+        const hasProxy = Boolean(proxyUrl && proxyUrl.trim());
+        dom.proxyStatus.className = `proxy-status-badge ${hasProxy ? 'active' : 'inactive'}`;
+        dom.proxyStatus.textContent = hasProxy ? '已连接' : '未连接';
+        dom.sidebarProxyDot.classList.toggle('active', hasProxy);
+    }
+
+    async function saveSettings() {
+        const proxy = dom.settingProxy.value.trim();
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxy })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('代理配置已保存', 'success');
+                updateProxyStatus(proxy);
+                dom.settingsModal.classList.add('hidden');
+            }
+        } catch (e) {
+            showToast('保存设置失败', 'error');
+        }
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        const icon = type === 'success' ? 'fa-circle-check' : (type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-info');
+        toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(message)}</span>`;
+        dom.toastContainer.appendChild(toast);
+        setTimeout(() => {
+            if (toast.parentNode === dom.toastContainer) {
+                dom.toastContainer.removeChild(toast);
+            }
+        }, 3200);
+    }
+
+    function formatHeat(num) {
+        const n = Number(num);
+        if (!Number.isFinite(n) || n <= 0) return '0';
+        if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '亿';
+        if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+        return n.toLocaleString();
+    }
+
+    function formatPublishDate(timestamp) {
+        if (!timestamp) return '刚刚';
+        const date = new Date(timestamp * 1000);
+        const now = new Date();
+        const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
+        if (diffHours < 1) return '刚刚';
+        if (diffHours < 24) return `${diffHours}小时前`;
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays < 30) return `${diffDays}天前`;
+        return `${date.getMonth() + 1}月${date.getDate()}日`;
+    }
+
+    function escapeHtml(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // ── Event Bindings ──────────────────────────────────────────────
+    function bindEvents() {
+        // Platform Navigation
+        dom.navBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const plat = btn.dataset.platform;
+                if (plat === state.platform) return;
+
+                dom.navBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                state.platform = plat;
+                const config = PLATFORM_CONFIG[plat] || { name: plat, color: '#38bdf8' };
+                dom.platformTitle.textContent = config.name;
+                dom.platformStatusBadge.textContent = config.badge || '实时聚合中';
+
+                // Set Accent Color
+                document.documentElement.style.setProperty('--accent', config.color);
+                document.documentElement.style.setProperty('--glow', config.glow);
+
+                loadData(true);
+            });
+        });
+
+        // Metric Mode Toggle
+        dom.btnMetricSingle.addEventListener('click', () => {
+            if (state.metricMode === 'single') return;
+            state.metricMode = 'single';
+            dom.btnMetricSingle.classList.add('active');
+            dom.btnMetricTopic.classList.remove('active');
+            loadData(true);
+        });
+
+        dom.btnMetricTopic.addEventListener('click', () => {
+            if (state.metricMode === 'topic') return;
+            state.metricMode = 'topic';
+            dom.btnMetricTopic.classList.add('active');
+            dom.btnMetricSingle.classList.remove('active');
+            loadData(true);
+        });
+
+        // Back from Topic Drilldown
+        dom.btnBackToTopics.addEventListener('click', closeTopicDrilldown);
+
+        // Search Input
+        dom.searchInput.addEventListener('input', (e) => {
+            dom.searchClearBtn.classList.toggle('hidden', !e.target.value);
+        });
+
+        dom.searchBtn.addEventListener('click', () => {
+            state.searchQuery = dom.searchInput.value.trim();
+            loadData(true);
+        });
+
+        dom.searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                state.searchQuery = dom.searchInput.value.trim();
+                loadData(true);
+            }
+        });
+
+        dom.searchClearBtn.addEventListener('click', () => {
+            dom.searchInput.value = '';
+            dom.searchClearBtn.classList.add('hidden');
+            state.searchQuery = '';
+            loadData(true);
+        });
+
+        // Global Shortcut: Ctrl + K
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                dom.searchInput.focus();
+            }
+        });
+
+        // Category Chips
+        dom.filterChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                dom.filterChips.forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                state.category = chip.dataset.category;
+                loadData(true);
+            });
+        });
+
+        // Time Chips
+        dom.timeChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                dom.timeChips.forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                state.timeRange = chip.dataset.time;
+                loadData(true);
+            });
+        });
+
+        // View Switcher (Feed vs 3D Globe)
+        dom.viewSwitchBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                if (view === state.view) return;
+
+                dom.viewSwitchBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                state.view = view;
+
+                if (view === 'globe') {
+                    dom.gridScrollArea.classList.add('hidden');
+                    dom.categoryFiltersContainer.classList.add('hidden');
+                    dom.globeView.classList.remove('hidden');
+                    if (!globeRadar.isInitialized) {
+                        globeRadar.init(dom.globeStage);
+                    }
+                    globeRadar.updatePoints(state.geoHotspots);
+                } else {
+                    dom.globeView.classList.add('hidden');
+                    dom.categoryFiltersContainer.classList.remove('hidden');
+                    dom.gridScrollArea.classList.remove('hidden');
+                }
+            });
+        });
+
+        // Refresh Button
+        dom.refreshBtn.addEventListener('click', () => {
+            loadData(true);
+        });
+
+        // Scroll Pagination
+        dom.gridScrollArea.addEventListener('scroll', handleScrollPagination);
+
+        // Player Modal Danmaku Controls
+        dom.modalDanmakuToggle.addEventListener('click', () => {
+            danmakuEngine.toggle(dom.modalDanmakuScreen, dom.modalDanmakuToggle);
+        });
+
+        dom.modalDanmakuSend.addEventListener('click', sendModalDanmaku);
+        dom.modalDanmakuInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendModalDanmaku();
+        });
+
+        function sendModalDanmaku() {
+            const val = dom.modalDanmakuInput.value.trim();
+            if (!val) return;
+            danmakuEngine.emit(dom.modalDanmakuScreen, val, true);
+            dom.modalDanmakuInput.value = '';
+            showToast('弹幕发射成功！', 'success');
+        }
+
+        // Close Player Modal
+        dom.closePlayerModalBtn.addEventListener('click', closePlayerModal);
+        dom.playerModal.addEventListener('click', (e) => {
+            if (e.target === dom.playerModal) closePlayerModal();
+        });
+
+        // Player Modal Action Tools
+        dom.modalCopyLinkBtn.addEventListener('click', () => copyVideoLink(state.activeVideo));
+        dom.modalSniffBtn.addEventListener('click', () => sniffVideoDirectStream(state.activeVideo, dom.modalSniffBtn));
+        dom.modalDownloadBtn.addEventListener('click', () => downloadVideo(state.activeVideo));
+
+        // Drawer Action Tools
+        if (dom.btnCopyLink) dom.btnCopyLink.addEventListener('click', () => copyVideoLink(state.activeVideo));
+        if (dom.btnParseStream) dom.btnParseStream.addEventListener('click', () => sniffVideoDirectStream(state.activeVideo, dom.btnParseStream));
+        if (dom.btnDownloadVideo) dom.btnDownloadVideo.addEventListener('click', () => downloadVideo(state.activeVideo));
+        if (dom.btnCopyStream) dom.btnCopyStream.addEventListener('click', () => {
+            navigator.clipboard.writeText(dom.streamUrlInput.value).then(() => {
+                showToast('已复制视频直链地址！', 'success');
+            });
+        });
+        if (dom.closeDrawerBtn) dom.closeDrawerBtn.addEventListener('click', () => {
+            dom.detailDrawer.classList.add('hidden');
+        });
+
+        // Settings Modal
+        dom.settingsBtn.addEventListener('click', () => {
+            dom.settingsModal.classList.remove('hidden');
+        });
+        dom.closeModalBtn.addEventListener('click', () => {
+            dom.settingsModal.classList.add('hidden');
+        });
+        dom.settingsModal.addEventListener('click', (e) => {
+            if (e.target === dom.settingsModal) dom.settingsModal.classList.add('hidden');
+        });
+        dom.btnSaveSettings.addEventListener('click', saveSettings);
+        dom.proxyPills.forEach(pill => {
+            pill.addEventListener('click', () => {
+                dom.settingProxy.value = pill.dataset.url;
+            });
+        });
+
+        // Auth Modal & Role Switching
+        dom.openLoginBtn.addEventListener('click', () => {
+            dom.authModal.classList.remove('hidden');
+        });
+        dom.closeAuthModalBtn.addEventListener('click', () => {
+            dom.authModal.classList.add('hidden');
+        });
+        dom.authModal.addEventListener('click', (e) => {
+            if (e.target === dom.authModal) dom.authModal.classList.add('hidden');
+        });
+
+        dom.btnRoleAdmin.addEventListener('click', () => switchRole('admin'));
+        dom.btnRolePro.addEventListener('click', () => switchRole('pro'));
+        dom.btnRoleDemo.addEventListener('click', () => switchRole('user'));
+
+        dom.authTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                dom.authTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                const target = tab.dataset.tab;
+                dom.loginForm.classList.toggle('hidden', target !== 'login');
+                dom.registerForm.classList.toggle('hidden', target !== 'register');
+            });
+        });
+
+        // Login Form
+        dom.loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = dom.loginUsername.value.trim();
+            const password = dom.loginPassword.value.trim();
             try {
                 const res = await fetch('/api/auth/login', {
                     method: 'POST',
@@ -1349,139 +1244,69 @@ function setupAuthEvents() {
                     body: JSON.stringify({ username, password })
                 });
                 const data = await res.json();
-                if (res.ok && data.success) {
-                    state.token = data.token;
-                    state.currentUser = data.user;
-                    localStorage.setItem('hotpot_token', data.token);
-                    updateUserUi(data.user);
-                    closeAuthModal();
-                    showToast(`欢迎回来，${data.user.nickname}！`);
+                if (data.success) {
+                    setUserSession(data.user);
+                    showToast(`欢迎回来，${data.user.nickname || data.user.username}`, 'success');
+                    dom.authModal.classList.add('hidden');
                 } else {
-                    msgBox.textContent = data.message || '登录失败';
-                    msgBox.className = 'auth-message-box error';
-                    msgBox.classList.remove('hidden');
+                    dom.loginMsgBox.textContent = data.message || '登录失败';
+                    dom.loginMsgBox.className = 'auth-message-box error';
+                    dom.loginMsgBox.classList.remove('hidden');
                 }
             } catch (err) {
-                msgBox.textContent = '服务器网络通讯异常';
-                msgBox.className = 'auth-message-box error';
-                msgBox.classList.remove('hidden');
+                showToast('登录请求失败', 'error');
             }
         });
-    }
 
-    if (regForm) {
-        regForm.addEventListener('submit', async (e) => {
+        // Register Form
+        dom.registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const username = document.getElementById('reg-username').value.trim();
-            const nickname = document.getElementById('reg-nickname').value.trim();
-            const password = document.getElementById('reg-password').value;
-            const msgBox = document.getElementById('reg-msg-box');
-
+            const username = dom.regUsername.value.trim();
+            const nickname = dom.regNickname.value.trim() || username;
+            const password = dom.regPassword.value.trim();
             try {
                 const res = await fetch('/api/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, nickname })
+                    body: JSON.stringify({ username, nickname, password })
                 });
                 const data = await res.json();
-                if (res.ok && data.success) {
-                    msgBox.textContent = '注册成功！正在为您登入...';
-                    msgBox.className = 'auth-message-box success';
-                    msgBox.classList.remove('hidden');
-                    setTimeout(async () => {
-                        const lRes = await fetch('/api/auth/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username, password })
-                        });
-                        const lData = await lRes.json();
-                        if (lData.success) {
-                            state.token = lData.token;
-                            state.currentUser = lData.user;
-                            localStorage.setItem('hotpot_token', lData.token);
-                            updateUserUi(lData.user);
-                            closeAuthModal();
-                            showToast(`注册并登录成功，欢迎使用 HotPot！`);
-                        }
-                    }, 800);
+                if (data.success) {
+                    setUserSession(data.user);
+                    showToast(`注册成功！欢迎加入，${data.user.nickname}`, 'success');
+                    dom.authModal.classList.add('hidden');
                 } else {
-                    msgBox.textContent = data.message || '注册失败';
-                    msgBox.className = 'auth-message-box error';
-                    msgBox.classList.remove('hidden');
+                    dom.regMsgBox.textContent = data.message || '注册失败';
+                    dom.regMsgBox.className = 'auth-message-box error';
+                    dom.regMsgBox.classList.remove('hidden');
                 }
             } catch (err) {
-                msgBox.textContent = '网络连接异常';
-                msgBox.className = 'auth-message-box error';
-                msgBox.classList.remove('hidden');
+                showToast('注册请求失败', 'error');
             }
         });
-    }
-}
 
-// Download Action Helper
-function downloadNoWatermarkVideo(videoUrl, title) {
-    if (!state.token) {
-        openAuthModal();
-        showToast('请先登录即可享受无水印极速物理下载功能！');
-        return;
-    }
-
-    showToast('🚀 已发起无水印极速下载，正在建立流传输...');
-    const downloadApiUrl = `/api/download?videoUrl=${encodeURIComponent(videoUrl)}&title=${encodeURIComponent(title)}&token=${encodeURIComponent(state.token)}`;
-    const anchor = document.createElement('a');
-    anchor.href = downloadApiUrl;
-    anchor.download = `${title || 'HotPot_Video'}.mp4`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-}
-
-// Modal Player Action Buttons Setup
-function setupPlayerDownloadActions() {
-    const downloadBtn = document.getElementById('modal-download-btn');
-    const sniffBtn = document.getElementById('modal-sniff-btn');
-
-    if (downloadBtn) {
-        downloadBtn.addEventListener('click', () => {
-            if (!state.selectedVideo) return;
-            downloadNoWatermarkVideo(state.selectedVideo.url, state.selectedVideo.title);
-        });
-    }
-
-    if (sniffBtn) {
-        sniffBtn.addEventListener('click', async () => {
-            if (!state.selectedVideo) return;
-            if (!state.token) {
-                openAuthModal();
-                showToast('请先登录使用无水印嗅探功能');
-                return;
-            }
-            showToast('⚡ 正在调用 MediaTools 嗅探引擎解析...');
+        // Logout
+        dom.authLogoutBtn.addEventListener('click', async () => {
             try {
-                const res = await fetch('/api/parse', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${state.token}`
-                    },
-                    body: JSON.stringify({ url: state.selectedVideo.url })
-                });
-                const data = await res.json();
-                if (data.success && data.videoUrl) {
-                    showToast('🎉 无水印 MP4 嗅探成功！已开启物理直连下载');
-                    downloadNoWatermarkVideo(data.videoUrl, state.selectedVideo.title);
-                } else {
-                    showToast(data.error || '嗅探解析失败');
-                }
-            } catch (e) {
-                showToast('网络嗅探失败');
-            }
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (e) {}
+            setUserSession({
+                username: 'demo',
+                nickname: '体验用户',
+                role: 'user',
+                avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=demo'
+            });
+            showToast('已退出登录', 'info');
         });
     }
-}
 
-document.addEventListener('DOMContentLoaded', () => {
-    checkAuthStatus();
-    setupAuthEvents();
-    setupPlayerDownloadActions();
+    // ── Application Bootstrapping ───────────────────────────────────
+    async function init() {
+        bindEvents();
+        await initUserSession();
+        await loadSettings();
+        await loadData(true);
+    }
+
+    init();
 });
