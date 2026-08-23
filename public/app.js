@@ -127,6 +127,45 @@ document.addEventListener('DOMContentLoaded', () => {
         modalSniffBtn: document.getElementById('modal-sniff-btn'),
         modalDownloadBtn: document.getElementById('modal-download-btn'),
 
+        // MediaTools Workbench DOM
+        mediatoolsView: document.getElementById('mediatools-view'),
+        btnNavMediatools: document.getElementById('btn-nav-mediatools'),
+        mtRoleBadge: document.getElementById('mt-role-badge'),
+        mtQuotaCount: document.getElementById('mt-quota-count'),
+        mtQuickRoleBtn: document.getElementById('mt-quick-role-btn'),
+        mtOpenLogsBtn: document.getElementById('mt-open-logs-btn'),
+        mtInputUrl: document.getElementById('mt-input-url'),
+        mtPasteBtn: document.getElementById('mt-paste-btn'),
+        mtClearBtn: document.getElementById('mt-clear-btn'),
+        mtExtractBtn: document.getElementById('mt-extract-btn'),
+        mtLoadingState: document.getElementById('mt-loading-state'),
+        mtLoadingStep: document.getElementById('mt-loading-step'),
+        mtResultsGrid: document.getElementById('mt-results-grid'),
+        mtResPlatform: document.getElementById('mt-res-platform'),
+        mtResTitle: document.getElementById('mt-res-title'),
+        mtResAuthor: document.getElementById('mt-res-author'),
+        mtResQuality: document.getElementById('mt-res-quality'),
+        mtResDuration: document.getElementById('mt-res-duration'),
+        mtResOriginLink: document.getElementById('mt-res-origin-link'),
+        mtNativeVideo: document.getElementById('mt-native-video'),
+        mtBtnDownloadMp4: document.getElementById('mt-btn-download-mp4'),
+        mtBtnCopyStream: document.getElementById('mt-btn-copy-stream'),
+        mtBtnAnalyzeAgain: document.getElementById('mt-btn-analyze-again'),
+        mtAiCategory: document.getElementById('mt-ai-category'),
+        mtAiAudience: document.getElementById('mt-ai-audience'),
+        mtAiTrigger: document.getElementById('mt-ai-trigger'),
+        mtAiHooks: document.getElementById('mt-ai-hooks'),
+        mtAiStoryboard: document.getElementById('mt-ai-storyboard'),
+        mtAiRecommendations: document.getElementById('mt-ai-recommendations'),
+        mtTabBtns: document.querySelectorAll('.mt-tab-btn'),
+        mtPanelTranscript: document.getElementById('mt-panel-transcript'),
+        mtPanelAi: document.getElementById('mt-panel-ai'),
+        mtTranscriptCount: document.getElementById('mt-transcript-count'),
+        mtTranscriptTimeline: document.getElementById('mt-transcript-timeline'),
+        mtBtnCopyTranscript: document.getElementById('mt-btn-copy-transcript'),
+        mtBtnExportTxt: document.getElementById('mt-btn-export-txt'),
+        mtBtnExportSrt: document.getElementById('mt-btn-export-srt'),
+
         // Settings Modal
         settingsBtn: document.getElementById('settings-btn'),
         settingsModal: document.getElementById('settings-modal'),
@@ -176,37 +215,77 @@ document.addEventListener('DOMContentLoaded', () => {
         kuaishou:    { name: '快手热门', color: '#ff5000', glow: 'rgba(255,80,0,0.3)', badge: '国民热度精选' }
     };
 
-    // ── High Performance Danmaku Engine ─────────────────────────────
+    // ── High Performance Danmaku Engine (Authentic Multi-platform Parser) ──
     class DanmakuEngine {
         constructor() {
             this.active = true;
             this.timers = [];
-            this.sampleDanmakus = [
-                '太强了这个名场面！', '全体起立！！！', '前方核能预警 ⚡', '这播放量真的封神了',
-                '哈哈哈哈哈笑到满地找头', '这就是艺术！', '好绝的运镜和剪辑', '亿遍打卡！',
-                '原汁原味太爽了', '2025还在看', '神级卡点直接起飞', '膝盖收下吧！'
-            ];
+            this.currentDanmakus = [];
+            this.danmakuIndex = 0;
         }
 
-        start(containerEl) {
+        async start(containerEl, video, countBadgeEl) {
             this.stop();
             if (!containerEl) return;
             containerEl.innerHTML = '';
-            
-            // Emit continuous organic danmakus
-            const intervalId = setInterval(() => {
-                if (!this.active || document.hidden) return;
-                const text = this.sampleDanmakus[Math.floor(Math.random() * this.sampleDanmakus.length)];
-                this.emit(containerEl, text, false);
-            }, 1800);
-            this.timers.push(intervalId);
+            this.currentDanmakus = [];
+            this.danmakuIndex = 0;
+
+            const targetId = video?.id || '';
+            const targetPlatform = video?.platform || state.platform || '';
+
+            try {
+                const res = await fetch(`/api/danmaku?bvid=${encodeURIComponent(targetId)}&id=${encodeURIComponent(targetId)}&platform=${encodeURIComponent(targetPlatform)}`);
+                const data = await res.json();
+                if (data.success && Array.isArray(data.list) && data.list.length > 0) {
+                    this.currentDanmakus = data.list;
+                    if (countBadgeEl) {
+                        countBadgeEl.textContent = `已载入 ${data.list.length} 条全网真实弹幕`;
+                    }
+                    if (dom.modalDanmakuCount) {
+                        dom.modalDanmakuCount.textContent = `已载入 ${data.list.length} 条真实弹幕`;
+                    }
+                } else {
+                    if (countBadgeEl) {
+                        countBadgeEl.textContent = '暂无实时弹幕 · 支持下方发送互动';
+                    }
+                    if (dom.modalDanmakuCount) {
+                        dom.modalDanmakuCount.textContent = '暂无实时弹幕 · 支持发送';
+                    }
+                }
+            } catch (e) {
+                console.warn('[Danmaku Engine] Fetch error:', e);
+                if (countBadgeEl) countBadgeEl.textContent = '暂无实时弹幕 · 支持下方发送互动';
+            }
+
+            if (this.currentDanmakus.length > 0) {
+                // Continuous streaming of authentic danmaku
+                const intervalId = setInterval(() => {
+                    if (!this.active || document.hidden || this.currentDanmakus.length === 0) return;
+                    const item = this.currentDanmakus[this.danmakuIndex % this.currentDanmakus.length];
+                    this.danmakuIndex++;
+                    this.emit(containerEl, item.text, false, item.color);
+                }, 1400);
+                this.timers.push(intervalId);
+
+                // Pre-emit immediate floating real danmakus
+                setTimeout(() => this.emit(containerEl, this.currentDanmakus[0]?.text, false, this.currentDanmakus[0]?.color), 150);
+                if (this.currentDanmakus.length > 1) {
+                    setTimeout(() => this.emit(containerEl, this.currentDanmakus[1]?.text, false, this.currentDanmakus[1]?.color), 600);
+                }
+            }
         }
 
-        emit(containerEl, text, isUser = false) {
-            if (!containerEl) return;
+        emit(containerEl, text, isUser = false, customColor = null) {
+            if (!containerEl || !text) return;
             const el = document.createElement('div');
             el.className = `danmaku-item ${isUser ? 'is-user' : ''}`;
             el.textContent = text;
+
+            if (customColor && !isUser) {
+                el.style.color = customColor;
+                el.style.textShadow = `0 0 8px ${customColor}80, 0 1px 3px rgba(0,0,0,0.9)`;
+            }
             
             const topPercent = Math.floor(Math.random() * 65) + 10;
             el.style.top = `${topPercent}%`;
@@ -214,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const duration = Math.floor(Math.random() * 3) + (isUser ? 6 : 7);
             el.style.animationDuration = `${duration}s`;
             
-            if (!isUser) {
+            if (!isUser && !customColor) {
                 const styles = ['hot', 'cool', 'glow', ''];
                 const chosen = styles[Math.floor(Math.random() * styles.length)];
                 if (chosen) el.classList.add(chosen);
@@ -748,7 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPlayerEmbed(video, dom.modalVideoWrapper);
 
         // Start Danmaku Engine
-        danmakuEngine.start(dom.modalDanmakuScreen);
+        danmakuEngine.start(dom.modalDanmakuScreen, video, dom.modalDanmakuCount);
 
         // Open Modal
         dom.playerModal.classList.remove('hidden');
@@ -839,17 +918,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function downloadVideo(video) {
+    async function downloadVideo(video) {
         if (!video) return;
-        const targetUrl = video.streamUrl || video.url || `https://www.bilibili.com/video/${video.id}`;
+        const targetUrl = video.url || `https://www.bilibili.com/video/${video.id}`;
         
         if (video.streamUrl) {
-            // Direct download link via proxy
-            const proxyDownloadUrl = `/api/proxy-video?url=${encodeURIComponent(video.streamUrl)}&download=1`;
-            window.open(proxyDownloadUrl, '_blank');
-            showToast('已开始极速下载高清视频文件', 'success');
-        } else {
-            showToast('正在为您跳转原平台高清下载页...', 'info');
+            const dlUrl = `/api/download?videoUrl=${encodeURIComponent(video.streamUrl)}&title=${encodeURIComponent(video.title || 'hotpot_video')}`;
+            window.open(dlUrl, '_blank');
+            showToast('已启动物理高清无水印下载', 'success');
+            return;
+        }
+
+        showToast('正在穿透拦截物理无水印直链并下载...', 'info');
+        try {
+            const res = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: targetUrl })
+            });
+            const data = await res.json();
+            if (data.success && data.videoUrl) {
+                video.streamUrl = data.videoUrl;
+                const dlUrl = `/api/download?videoUrl=${encodeURIComponent(data.videoUrl)}&title=${encodeURIComponent(video.title || data.title || 'hotpot_video')}`;
+                window.open(dlUrl, '_blank');
+                showToast('已启动物理高速下载！', 'success');
+            } else {
+                window.open(targetUrl, '_blank');
+            }
+        } catch (e) {
             window.open(targetUrl, '_blank');
         }
     }
@@ -1018,29 +1114,416 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#39;');
     }
 
+    // ── MediaTools Universal Extractor & AI Insights Controller ─────
+    class MediaToolsController {
+        constructor() {
+            this.activeParsedData = null;
+        }
+
+        init() {
+            // Quick Sample Chips
+            document.querySelectorAll('.sample-chip').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const url = btn.getAttribute('data-url');
+                    if (url && dom.mtInputUrl) {
+                        dom.mtInputUrl.value = url;
+                        dom.mtClearBtn?.classList.remove('hidden');
+                        this.extract(url);
+                    }
+                });
+            });
+
+            // Tab switching for Transcript vs AI
+            dom.mtTabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const targetTab = btn.dataset.mttab;
+                    dom.mtTabBtns.forEach(b => b.classList.toggle('active', b === btn));
+                    if (dom.mtPanelTranscript) dom.mtPanelTranscript.classList.toggle('hidden', targetTab !== 'transcript');
+                    if (dom.mtPanelAi) dom.mtPanelAi.classList.toggle('hidden', targetTab !== 'ai');
+                });
+            });
+
+            // Copy Full Transcript
+            if (dom.mtBtnCopyTranscript) {
+                dom.mtBtnCopyTranscript.addEventListener('click', () => {
+                    if (!this.activeParsedData?.transcript?.plainText && !this.activeParsedData?.transcript?.fullText) {
+                        showToast('暂无台词可复制', 'warning');
+                        return;
+                    }
+                    const text = this.activeParsedData.transcript.plainText || this.activeParsedData.transcript.fullText;
+                    navigator.clipboard.writeText(text).then(() => {
+                        showToast('已复制全部原声台词到剪贴板', 'success');
+                    });
+                });
+            }
+
+            // Export TXT
+            if (dom.mtBtnExportTxt) {
+                dom.mtBtnExportTxt.addEventListener('click', () => {
+                    if (!this.activeParsedData?.transcript) {
+                        showToast('暂无可导出的台词', 'warning');
+                        return;
+                    }
+                    const text = this.activeParsedData.transcript.plainText || this.activeParsedData.transcript.fullText;
+                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                    const cleanTitle = (this.activeParsedData.title || 'video_transcript').replace(/[\\/:*?"<>|]/g, '_');
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `${cleanTitle}_台词.txt`;
+                    link.click();
+                    showToast('已成功导出台词 TXT 文档', 'success');
+                });
+            }
+
+            // Export SRT
+            if (dom.mtBtnExportSrt) {
+                dom.mtBtnExportSrt.addEventListener('click', () => {
+                    if (!this.activeParsedData?.transcript?.srtContent) {
+                        showToast('暂无可导出的字幕数据', 'warning');
+                        return;
+                    }
+                    const srt = this.activeParsedData.transcript.srtContent;
+                    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+                    const cleanTitle = (this.activeParsedData.title || 'video_subtitles').replace(/[\\/:*?"<>|]/g, '_');
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `${cleanTitle}.srt`;
+                    link.click();
+                    showToast('已成功导出标准 SRT 字幕文件', 'success');
+                });
+            }
+
+            // Paste Button
+            if (dom.mtPasteBtn) {
+                dom.mtPasteBtn.addEventListener('click', async () => {
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (text && dom.mtInputUrl) {
+                            dom.mtInputUrl.value = text.trim();
+                            dom.mtClearBtn?.classList.remove('hidden');
+                            showToast('已从剪贴板粘贴视频链接', 'info');
+                        }
+                    } catch (e) {
+                        dom.mtInputUrl?.focus();
+                        showToast('请直接使用 Ctrl+V 粘贴链接', 'info');
+                    }
+                });
+            }
+
+            // Clear Button
+            if (dom.mtClearBtn) {
+                dom.mtClearBtn.addEventListener('click', () => {
+                    if (dom.mtInputUrl) {
+                        dom.mtInputUrl.value = '';
+                        dom.mtClearBtn.classList.add('hidden');
+                        dom.mtInputUrl.focus();
+                    }
+                });
+            }
+
+            // Input typing listener
+            if (dom.mtInputUrl) {
+                dom.mtInputUrl.addEventListener('input', () => {
+                    dom.mtClearBtn?.classList.toggle('hidden', !dom.mtInputUrl.value);
+                });
+                dom.mtInputUrl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        this.extract(dom.mtInputUrl.value);
+                    }
+                });
+            }
+
+            // Extract Submit Button
+            if (dom.mtExtractBtn) {
+                dom.mtExtractBtn.addEventListener('click', () => {
+                    if (dom.mtInputUrl) {
+                        this.extract(dom.mtInputUrl.value);
+                    }
+                });
+            }
+
+            // Download MP4
+            if (dom.mtBtnDownloadMp4) {
+                dom.mtBtnDownloadMp4.addEventListener('click', () => {
+                    if (!this.activeParsedData) return;
+                    const videoUrl = this.activeParsedData.videoUrl;
+                    const title = this.activeParsedData.title || 'video';
+                    const dlUrl = `/api/download?videoUrl=${encodeURIComponent(videoUrl)}&title=${encodeURIComponent(title)}`;
+                    window.open(dlUrl, '_blank');
+                    showToast('已启动物理高清无水印下载！', 'success');
+                });
+            }
+
+            // Copy Stream URL
+            if (dom.mtBtnCopyStream) {
+                dom.mtBtnCopyStream.addEventListener('click', () => {
+                    if (!this.activeParsedData) return;
+                    const streamUrl = this.activeParsedData.videoUrl;
+                    navigator.clipboard.writeText(streamUrl).then(() => {
+                        showToast('无水印直链已复制到剪贴板', 'success');
+                    });
+                });
+            }
+
+            // Re-analyze
+            if (dom.mtBtnAnalyzeAgain) {
+                dom.mtBtnAnalyzeAgain.addEventListener('click', () => {
+                    if (this.activeParsedData) {
+                        this.runAiAnalysis(this.activeParsedData.title, this.activeParsedData.description);
+                    }
+                });
+            }
+
+            // Role Switcher / Auth triggers
+            if (dom.mtQuickRoleBtn) {
+                dom.mtQuickRoleBtn.addEventListener('click', () => {
+                    dom.authModal?.classList.remove('hidden');
+                });
+            }
+            if (dom.mtOpenLogsBtn) {
+                dom.mtOpenLogsBtn.addEventListener('click', () => {
+                    dom.authModal?.classList.remove('hidden');
+                    showToast('可切换至管理员角色查看完整抓取日志', 'info');
+                });
+            }
+        }
+
+        async extract(url) {
+            if (!url || !url.trim()) {
+                showToast('请输入有效的音视频链接', 'warning');
+                dom.mtInputUrl?.focus();
+                return;
+            }
+
+            dom.mtLoadingState?.classList.remove('hidden');
+            dom.mtResultsGrid?.classList.add('hidden');
+            if (dom.mtLoadingStep) dom.mtLoadingStep.textContent = '1/3 正在穿透反爬防御，拦截物理流媒体元数据...';
+
+            try {
+                const token = localStorage.getItem('hotpot_token');
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const res = await fetch('/api/parse', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ url: url.trim() })
+                });
+
+                const data = await res.json();
+                if (!data.success) {
+                    dom.mtLoadingState?.classList.add('hidden');
+                    showToast(data.message || data.error || '提取失败，请检查链接有效性', 'warning');
+                    return;
+                }
+
+                if (dom.mtLoadingStep) dom.mtLoadingStep.textContent = '2/3 拦截高清视频物理直链中...';
+                this.activeParsedData = data;
+
+                // Render Results
+                if (dom.mtResPlatform) dom.mtResPlatform.textContent = data.platform || 'UNIVERSAL';
+                if (dom.mtResTitle) dom.mtResTitle.textContent = data.title || '提取的视频';
+                if (dom.mtResAuthor) dom.mtResAuthor.textContent = data.author || '网络创作者';
+                if (dom.mtResQuality) dom.mtResQuality.textContent = data.quality || '1080P 超清物理流';
+                if (dom.mtResDuration) dom.mtResDuration.textContent = data.duration || 'Shorts';
+                if (dom.mtResOriginLink) dom.mtResOriginLink.href = data.originUrl || url;
+
+                // Video Player
+                const streamUrl = data.videoUrl;
+                if (streamUrl && dom.mtNativeVideo) {
+                    dom.mtNativeVideo.src = `/api/proxy-video?url=${encodeURIComponent(streamUrl)}`;
+                    dom.mtNativeVideo.poster = data.cover || '';
+                    dom.mtNativeVideo.play().catch(() => {});
+                }
+
+                // Render Transcript
+                if (data.transcript) {
+                    this.renderTranscript(data.transcript);
+                }
+
+                if (dom.mtLoadingStep) dom.mtLoadingStep.textContent = '3/3 AI 智能拆解黄金看点与二创脚本...';
+                await this.runAiAnalysis(data.title, data.description, data.aiAnalysis);
+
+                dom.mtLoadingState?.classList.add('hidden');
+                dom.mtResultsGrid?.classList.remove('hidden');
+                showToast('万能视频提取与 AI 拆解完成！', 'success');
+
+                // Update User Quota Card
+                if (state.user) {
+                    if (dom.mtRoleBadge) dom.mtRoleBadge.textContent = state.user.role.toUpperCase();
+                    if (dom.mtQuotaCount) dom.mtQuotaCount.textContent = state.user.role === 'user' ? `${state.user.remaining}次` : '无限次';
+                }
+
+            } catch (e) {
+                console.error('[MediaTools] Extract Error:', e);
+                dom.mtLoadingState?.classList.add('hidden');
+                showToast('网络连接异常，请重试', 'warning');
+            }
+        }
+
+        renderTranscript(transcriptData) {
+            if (!dom.mtTranscriptTimeline) return;
+            const items = transcriptData?.transcript || [];
+            if (dom.mtTranscriptCount) {
+                dom.mtTranscriptCount.textContent = `${items.length}句`;
+            }
+            if (items.length === 0) {
+                dom.mtTranscriptTimeline.innerHTML = `
+                    <div class="transcript-empty-state">
+                        <i class="fa-solid fa-microphone-lines"></i>
+                        <p>该视频暂无字幕文本</p>
+                    </div>
+                `;
+                return;
+            }
+
+            dom.mtTranscriptTimeline.innerHTML = items.map(line => `
+                <div class="transcript-item" data-start="${line.startSec || 0}">
+                    <span class="transcript-time-badge">${escapeHtml(line.start)}</span>
+                    <span class="transcript-line-text">${escapeHtml(line.text)}</span>
+                </div>
+            `).join('');
+
+            // Add click-to-seek listeners
+            dom.mtTranscriptTimeline.querySelectorAll('.transcript-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const startSec = parseFloat(el.dataset.start) || 0;
+                    if (dom.mtNativeVideo) {
+                        dom.mtNativeVideo.currentTime = startSec;
+                        dom.mtNativeVideo.play().catch(() => {});
+                        showToast(`已跳转至 ${el.querySelector('.transcript-time-badge')?.textContent}`, 'info');
+                    }
+                });
+            });
+        }
+
+        async runAiAnalysis(title, description, directAiData = null) {
+            let data = directAiData;
+            if (!data) {
+                try {
+                    const res = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: title || '', description: description || '' })
+                    });
+                    data = await res.json();
+                } catch (e) {
+                    console.warn('[AI Analyzer] Error:', e);
+                }
+            }
+
+            if (data && (data.success || data.category)) {
+                if (dom.mtAiCategory) dom.mtAiCategory.textContent = data.category || '生活娱乐 & 综合创意';
+                if (dom.mtAiAudience) dom.mtAiAudience.textContent = data.targetAudience || '全网短视频消费者';
+                if (dom.mtAiTrigger) dom.mtAiTrigger.textContent = data.emotionalTrigger || '通过反差叙事与视觉冲击引发共鸣';
+                if (dom.mtAiRecommendations) dom.mtAiRecommendations.textContent = data.recommendations || '建议结合原平台播放页的热门评论与弹幕，学习观众最感兴趣的互动槽点。';
+
+                // Golden Hooks
+                if (dom.mtAiHooks && Array.isArray(data.goldenHooks)) {
+                    dom.mtAiHooks.innerHTML = data.goldenHooks.map(h => `
+                        <div class="hook-card">
+                            <span class="hook-tag">${escapeHtml(h.phase)} · ${escapeHtml(h.title)}</span>
+                            <p class="hook-desc">${escapeHtml(h.desc)}</p>
+                        </div>
+                    `).join('');
+                }
+
+                // Storyboard
+                if (dom.mtAiStoryboard && Array.isArray(data.storyboardSuggestions)) {
+                    dom.mtAiStoryboard.innerHTML = data.storyboardSuggestions.map(s => `
+                        <div class="storyboard-item">
+                            <div class="shot-header"><span class="shot-badge">${escapeHtml(s.shot)}</span> <strong>${escapeHtml(s.type)}</strong></div>
+                            <p class="shot-action">${escapeHtml(s.action)}</p>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+    }
+
+    const mediaToolsController = new MediaToolsController();
+
+    // ── Main View Switching Engine ──────────────────────────────────
+    function switchMainView(view) {
+        state.view = view;
+        dom.viewSwitchBtns.forEach(b => {
+            b.classList.toggle('active', b.dataset.view === view);
+        });
+
+        // Update sidebar nav active state
+        if (dom.btnNavMediatools) {
+            dom.btnNavMediatools.classList.toggle('active', view === 'mediatools');
+        }
+        if (view !== 'mediatools') {
+            dom.navBtns.forEach(b => {
+                if (b.dataset.platform === state.platform) b.classList.add('active');
+                else if (b.dataset.platform) b.classList.remove('active');
+            });
+        } else {
+            dom.navBtns.forEach(b => {
+                if (b.dataset.platform) b.classList.remove('active');
+            });
+        }
+
+        if (view === 'globe') {
+            dom.gridScrollArea?.classList.add('hidden');
+            dom.categoryFiltersContainer?.classList.add('hidden');
+            dom.mediatoolsView?.classList.add('hidden');
+            dom.globeView?.classList.remove('hidden');
+            if (!globeRadar.isInitialized && dom.globeStage) {
+                globeRadar.init(dom.globeStage);
+            }
+            globeRadar.updatePoints(state.geoHotspots);
+        } else if (view === 'mediatools') {
+            dom.globeView?.classList.add('hidden');
+            dom.gridScrollArea?.classList.add('hidden');
+            dom.categoryFiltersContainer?.classList.add('hidden');
+            dom.mediatoolsView?.classList.remove('hidden');
+        } else {
+            dom.globeView?.classList.add('hidden');
+            dom.mediatoolsView?.classList.add('hidden');
+            dom.categoryFiltersContainer?.classList.remove('hidden');
+            dom.gridScrollArea?.classList.remove('hidden');
+        }
+    }
+
     // ── Event Bindings ──────────────────────────────────────────────
     function bindEvents() {
+        // Init MediaTools Workbench
+        mediaToolsController.init();
+
         // Platform Navigation
         dom.navBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const plat = btn.dataset.platform;
-                if (plat === state.platform) return;
+                if (!plat) return;
+                if (plat === state.platform && state.view === 'feed') return;
 
                 dom.navBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                dom.btnNavMediatools?.classList.remove('active');
 
                 state.platform = plat;
                 const config = PLATFORM_CONFIG[plat] || { name: plat, color: '#38bdf8' };
-                dom.platformTitle.textContent = config.name;
-                dom.platformStatusBadge.textContent = config.badge || '实时聚合中';
+                if (dom.platformTitle) dom.platformTitle.textContent = config.name;
+                if (dom.platformStatusBadge) dom.platformStatusBadge.textContent = config.badge || '实时聚合中';
 
                 // Set Accent Color
                 document.documentElement.style.setProperty('--accent', config.color);
                 document.documentElement.style.setProperty('--glow', config.glow);
 
+                // Switch to Feed view when clicking a platform
+                switchMainView('feed');
                 loadData(true);
             });
         });
+
+        // Sidebar MediaTools Nav Button
+        if (dom.btnNavMediatools) {
+            dom.btnNavMediatools.addEventListener('click', () => {
+                switchMainView('mediatools');
+            });
+        }
 
         // Metric Mode Toggle
         dom.btnMetricSingle.addEventListener('click', () => {
@@ -1048,6 +1531,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.metricMode = 'single';
             dom.btnMetricSingle.classList.add('active');
             dom.btnMetricTopic.classList.remove('active');
+            switchMainView('feed');
             loadData(true);
         });
 
@@ -1056,6 +1540,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.metricMode = 'topic';
             dom.btnMetricTopic.classList.add('active');
             dom.btnMetricSingle.classList.remove('active');
+            switchMainView('feed');
             loadData(true);
         });
 
@@ -1069,12 +1554,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dom.searchBtn.addEventListener('click', () => {
             state.searchQuery = dom.searchInput.value.trim();
+            switchMainView('feed');
             loadData(true);
         });
 
         dom.searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 state.searchQuery = dom.searchInput.value.trim();
+                switchMainView('feed');
                 loadData(true);
             }
         });
@@ -1100,6 +1587,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.filterChips.forEach(c => c.classList.remove('active'));
                 chip.classList.add('active');
                 state.category = chip.dataset.category;
+                switchMainView('feed');
                 loadData(true);
             });
         });
@@ -1110,33 +1598,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.timeChips.forEach(c => c.classList.remove('active'));
                 chip.classList.add('active');
                 state.timeRange = chip.dataset.time;
+                switchMainView('feed');
                 loadData(true);
             });
         });
 
-        // View Switcher (Feed vs 3D Globe)
+        // View Switcher (Feed vs 3D Globe vs MediaTools)
         dom.viewSwitchBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const view = btn.dataset.view;
-                if (view === state.view) return;
-
-                dom.viewSwitchBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                state.view = view;
-
-                if (view === 'globe') {
-                    dom.gridScrollArea.classList.add('hidden');
-                    dom.categoryFiltersContainer.classList.add('hidden');
-                    dom.globeView.classList.remove('hidden');
-                    if (!globeRadar.isInitialized) {
-                        globeRadar.init(dom.globeStage);
-                    }
-                    globeRadar.updatePoints(state.geoHotspots);
-                } else {
-                    dom.globeView.classList.add('hidden');
-                    dom.categoryFiltersContainer.classList.remove('hidden');
-                    dom.gridScrollArea.classList.remove('hidden');
-                }
+                switchMainView(view);
             });
         });
 

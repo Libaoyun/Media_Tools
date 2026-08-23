@@ -110,6 +110,19 @@
                     </div>
                     <span class="nav-btn-indicator"></span>
                 </button>
+
+                <div class="sidebar-section-title">CREATOR WORKBENCH</div>
+
+                <button class="nav-btn nav-btn-mediatools" id="btn-nav-mediatools" data-view="mediatools" title="万能视频提取与 AI 深度拆解">
+                    <div class="nav-btn-icon-box mediatools-box">
+                        <i class="fa-solid fa-wand-magic-sparkles nav-icon mediatools-color"></i>
+                    </div>
+                    <div class="nav-btn-text">
+                        <span class="nav-btn-name">MediaTools 工作台</span>
+                        <span class="nav-btn-sub">万能提取 · AI拆解 · 物理下载</span>
+                    </div>
+                    <span class="nav-tool-badge">PRO</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -158,11 +171,15 @@
                     <div class="view-switcher" role="group" aria-label="内容视图">
                         <button class="view-switch-btn active" data-view="feed" title="视频瀑布流榜单">
                             <i class="fa-solid fa-layer-group"></i>
-                            <span>榜单流</span>
+                            <span>榜单大盘</span>
                         </button>
                         <button class="view-switch-btn" data-view="globe" title="3D 空间热点地球">
                             <i class="fa-solid fa-earth-asia"></i>
                             <span>热点地球</span>
+                        </button>
+                        <button class="view-switch-btn btn-view-mediatools" data-view="mediatools" title="MediaTools 万能提取与 AI 拆解工作台">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>MediaTools 工作台</span>
                         </button>
                     </div>
 
@@ -310,6 +327,232 @@
                     <div class="end-hint-line"></div>
                 </div>
             </div>
+
+            <!-- View 4: MediaTools Universal Video Extractor & AI Analyzer Workbench -->
+            <section class="mediatools-workspace hidden" id="mediatools-view">
+                <!-- Workbench Hero Banner -->
+                <div class="mediatools-hero">
+                    <div class="hero-glow-blob"></div>
+                    <div class="hero-content">
+                        <div class="hero-badge">
+                            <i class="fa-solid fa-bolt"></i> MEDIATOOLS CORE SUITE · 本地引擎已就绪
+                        </div>
+                        <h2 class="hero-title">MediaTools 万能提取 · AI 深度爆款拆解工作台</h2>
+                        <p class="hero-subtitle">
+                            支持 B站/抖音/YouTube/小红书/快手/TikTok/Twitter 全网链接。一键穿透防盗链，拦截 1080P/4K 高清无水印视频流，AI 智能剖析黄金看点与二创脚本。
+                        </p>
+                        
+                        <!-- Quick Platform Pills -->
+                        <div class="hero-platforms-bar">
+                            <span class="plat-pill"><i class="fa-brands fa-bilibili" style="color:#fb7299"></i> 哔哩哔哩</span>
+                            <span class="plat-pill"><i class="fa-solid fa-music" style="color:#22d3ee"></i> 抖音/TikTok</span>
+                            <span class="plat-pill"><i class="fa-brands fa-youtube" style="color:#ff0033"></i> YouTube</span>
+                            <span class="plat-pill"><i class="fa-solid fa-bookmark" style="color:#ff2442"></i> 小红书</span>
+                            <span class="plat-pill"><i class="fa-solid fa-circle-play" style="color:#ff5000"></i> 快手</span>
+                            <span class="plat-pill"><i class="fa-brands fa-x-twitter" style="color:#38bdf8"></i> Twitter / X</span>
+                        </div>
+                    </div>
+
+                    <!-- User Role & Quota Card -->
+                    <div class="workbench-quota-card">
+                        <div class="quota-header">
+                            <span><i class="fa-solid fa-shield-halved"></i> 提取引擎授权</span>
+                            <span id="mt-role-badge" class="role-badge role-admin">ADMIN</span>
+                        </div>
+                        <div class="quota-body">
+                            <div class="quota-stat">
+                                <strong id="mt-quota-count">无限次</strong>
+                                <small>今日可用提取额度</small>
+                            </div>
+                            <div class="quota-actions">
+                                <button id="mt-quick-role-btn" class="btn-role-switch" title="切换身份体验">
+                                    <i class="fa-solid fa-users-gear"></i> 切换角色
+                                </button>
+                                <button id="mt-open-logs-btn" class="btn-role-logs" title="查看提取审计日志">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> 审计日志
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Universal Link Sniffer Box -->
+                <div class="sniffer-card">
+                    <div class="sniffer-input-wrapper">
+                        <i class="fa-solid fa-link sniffer-icon"></i>
+                        <input type="text" id="mt-input-url" placeholder="粘贴视频链接 (如: https://www.bilibili.com/video/BV1bW411n7fY 或 抖音/小红书/YouTube分享链接)..." autocomplete="off">
+                        <button id="mt-paste-btn" class="sniffer-action-btn" title="从剪贴板粘贴">
+                            <i class="fa-regular fa-clipboard"></i> <span>粘贴</span>
+                        </button>
+                        <button id="mt-clear-btn" class="sniffer-action-btn hidden" title="清空输入框">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <button id="mt-extract-btn" class="sniffer-submit-btn">
+                            <i class="fa-solid fa-bolt"></i> <span>一键解析提取</span>
+                        </button>
+                    </div>
+
+                    <!-- Quick Demo Links -->
+                    <div class="sniffer-sample-chips">
+                        <span class="sample-label"><i class="fa-solid fa-fire"></i> 快速体验样例:</span>
+                        <button class="sample-chip" data-url="https://www.bilibili.com/video/BV1bW411n7fY"><i class="fa-brands fa-bilibili" style="color:#fb7299"></i> B站·念诗之王</button>
+                        <button class="sample-chip" data-url="https://www.bilibili.com/video/BV1yt4y1Q7SS"><i class="fa-brands fa-bilibili" style="color:#fb7299"></i> B站·敢杀我的马</button>
+                        <button class="sample-chip" data-url="https://www.douyin.com/video/7391823912831293821"><i class="fa-solid fa-music" style="color:#22d3ee"></i> 抖音·热门神曲</button>
+                        <button class="sample-chip" data-url="https://www.youtube.com/watch?v=kJQP7kiw5Fk"><i class="fa-brands fa-youtube" style="color:#ff0033"></i> YouTube·Despacito</button>
+                    </div>
+                </div>
+
+                <!-- Extraction Progress / Loading State -->
+                <div id="mt-loading-state" class="mt-loader-card hidden">
+                    <div class="neon-spinner"></div>
+                    <h4 id="mt-loading-step">正在穿透反爬防御，解析视频流元数据...</h4>
+                    <p>正在拦截物理无水印直链并触发 AI 深度爆款结构提炼</p>
+                </div>
+
+                <!-- Extraction Results Container -->
+                <div class="mediatools-results-grid hidden" id="mt-results-grid">
+                    <!-- Left Column: Video Preview Player & Actions -->
+                    <div class="results-player-card">
+                        <div class="result-card-header">
+                            <div class="result-title-group">
+                                <span id="mt-res-platform" class="platform-badge">Bilibili</span>
+                                <h3 id="mt-res-title">视频标题正在解析中...</h3>
+                            </div>
+                            <a id="mt-res-origin-link" class="cyber-btn-origin" target="_blank" rel="noopener noreferrer">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> <span>在原平台打开</span>
+                            </a>
+                        </div>
+
+                        <!-- Embed Player Box -->
+                        <div class="mt-player-wrapper" id="mt-player-wrapper">
+                            <video id="mt-native-video" controls autoplay playsinline class="mt-video-player"></video>
+                        </div>
+
+                        <!-- Video Attributes Bar -->
+                        <div class="mt-attributes-bar">
+                            <div class="attr-item"><i class="fa-regular fa-user"></i> <span id="mt-res-author">--</span></div>
+                            <div class="attr-item"><i class="fa-solid fa-gauge-high"></i> <span id="mt-res-quality">1080P 超清物理流</span></div>
+                            <div class="attr-item"><i class="fa-regular fa-clock"></i> <span id="mt-res-duration">--</span></div>
+                            <div class="attr-item"><i class="fa-solid fa-lock-open" style="color:#4ade80"></i> <span>已穿透无水印</span></div>
+                        </div>
+
+                        <!-- Download Action Buttons Bar -->
+                        <div class="mt-download-actions">
+                            <button id="mt-btn-download-mp4" class="cyber-btn-primary">
+                                <i class="fa-solid fa-cloud-arrow-down"></i> <span>一键物理高速下载 (MP4)</span>
+                            </button>
+                            <button id="mt-btn-copy-stream" class="cyber-btn-secondary">
+                                <i class="fa-regular fa-copy"></i> <span>复制无水印直链</span>
+                            </button>
+                            <button id="mt-btn-analyze-again" class="cyber-btn-secondary">
+                                <i class="fa-solid fa-brain"></i> <span>重新 AI 拆解</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Dual Tabs (Transcript & AI Deep Analysis) -->
+                    <div class="results-ai-card">
+                        <div class="mt-panel-tabs">
+                            <button class="mt-tab-btn active" data-mttab="transcript">
+                                <i class="fa-solid fa-file-lines"></i> <span>原声台词提取</span>
+                                <span class="tab-count-badge" id="mt-transcript-count">0句</span>
+                            </button>
+                            <button class="mt-tab-btn" data-mttab="ai">
+                                <i class="fa-solid fa-wand-magic-sparkles" style="color:#a855f7"></i> <span>AI 爆款深度拆解</span>
+                            </button>
+                        </div>
+
+                        <!-- Panel Tab 1: Transcript & Subtitles -->
+                        <div class="mt-tab-panel active" id="mt-panel-transcript">
+                            <div class="transcript-toolbar">
+                                <div class="toolbar-left">
+                                    <span class="transcript-status-dot"></span>
+                                    <span>AI 原声台词与字幕时间轴</span>
+                                </div>
+                                <div class="toolbar-actions">
+                                    <button id="mt-btn-copy-transcript" class="cyber-tool-btn" title="一键复制纯文本台词">
+                                        <i class="fa-regular fa-copy"></i> 复制全文
+                                    </button>
+                                    <button id="mt-btn-export-txt" class="cyber-tool-btn" title="导出 TXT 文本文档">
+                                        <i class="fa-solid fa-file-arrow-down"></i> 导出 TXT
+                                    </button>
+                                    <button id="mt-btn-export-srt" class="cyber-tool-btn highlight" title="导出标准 SRT 字幕文件">
+                                        <i class="fa-solid fa-closed-captioning"></i> 导出 SRT 字幕
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="transcript-timeline-container" id="mt-transcript-timeline">
+                                <div class="transcript-empty-state">
+                                    <i class="fa-solid fa-microphone-lines"></i>
+                                    <p>解析完成后自动呈现逐句台词与时间戳</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Panel Tab 2: AI Deep Insights & Storyboard -->
+                        <div class="mt-tab-panel hidden" id="mt-panel-ai">
+                            <div class="ai-card-body">
+                                <!-- AI Category & Audience Classification -->
+                                <div class="ai-section-box">
+                                    <div class="ai-section-title"><i class="fa-solid fa-tags"></i> 赛道定位与受众画像</div>
+                                    <div class="ai-meta-pills">
+                                        <span class="ai-category-badge" id="mt-ai-category">生活娱乐 & 综合创意</span>
+                                        <span class="ai-audience-badge" id="mt-ai-audience">全网短视频消费者</span>
+                                    </div>
+                                    <div class="ai-trigger-text" id="mt-ai-trigger">通过反差叙事与视觉冲击引发共鸣</div>
+                                </div>
+
+                                <!-- 3 Golden Hooks -->
+                                <div class="ai-section-box">
+                                    <div class="ai-section-title"><i class="fa-solid fa-bullseye"></i> 3大爆款核心黄金看点 (Golden Hooks)</div>
+                                    <div class="ai-hooks-cards" id="mt-ai-hooks">
+                                        <div class="hook-card">
+                                            <span class="hook-tag">⚡ 0~3秒 黄金钩子</span>
+                                            <p class="hook-desc">前3秒极速抛出核心悬念，瞬间锁定注意力</p>
+                                        </div>
+                                        <div class="hook-card">
+                                            <span class="hook-tag">🔥 4~15秒 情绪发酵</span>
+                                            <p class="hook-desc">高密度信息与矛盾痛点层层递进，提升完播留存</p>
+                                        </div>
+                                        <div class="hook-card">
+                                            <span class="hook-tag">💎 15~30秒 价值反转</span>
+                                            <p class="hook-desc">高潮反转与金句收尾，引导海量点赞与自发传播</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Storyboard Suggestions -->
+                                <div class="ai-section-box">
+                                    <div class="ai-section-title"><i class="fa-solid fa-clapperboard"></i> 分镜头拍摄与二创脚本建议</div>
+                                    <div class="storyboard-grid" id="mt-ai-storyboard">
+                                        <div class="storyboard-item">
+                                            <div class="shot-header"><span class="shot-badge">镜头 01</span> <strong>特写 / 动作定格</strong></div>
+                                            <p class="shot-action">开门见山展示最具视觉张力的动作或核心金句字幕</p>
+                                        </div>
+                                        <div class="storyboard-item">
+                                            <div class="shot-header"><span class="shot-badge">镜头 02</span> <strong>中景 / 主体叙事</strong></div>
+                                            <p class="shot-action">平滑推进叙事，节奏在2~3秒一切换避免疲劳</p>
+                                        </div>
+                                        <div class="storyboard-item">
+                                            <div class="shot-header"><span class="shot-badge">镜头 03</span> <strong>全景 / 情绪高潮</strong></div>
+                                            <p class="shot-action">定格在最具代表性的画面，抛出互动问题引导站队</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Remake & Viral Strategy -->
+                                <div class="ai-section-box">
+                                    <div class="ai-section-title"><i class="fa-solid fa-lightbulb"></i> 二创复刻与创作学习建议</div>
+                                    <div class="ai-strategy-text" id="mt-ai-recommendations">
+                                        建议学习其开头3秒钩子设计与音画卡点节奏，提取视频中的核心槽点作为二创脚本切入点。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
         </main>
 
